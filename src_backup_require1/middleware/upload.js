@@ -1,27 +1,15 @@
 const multer = require("multer");
 const path = require("path");
-const fs = require("fs");
-
-function ensureDir(dirPath) {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
-}
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    let dest;
-
     if (file.fieldname === "profileImage" || file.fieldname === "profileDocs") {
-      dest = path.join("src", "uploads", "drivers");
+      cb(null, path.join("src", "uploads", "drivers"));
     } else if (file.fieldname === "images") {
-      dest = path.join("src", "uploads", "vehicles");
+      cb(null, path.join("src", "uploads", "vehicles"));
     } else {
-      dest = path.join("src", "uploads");
+      cb(null, path.join("src", "uploads"));
     }
-
-    ensureDir(dest);
-    cb(null, dest);
   },
   filename: function (req, file, cb) {
     cb(null, Date.now() + "-" + file.originalname);

@@ -1,5 +1,3 @@
-// src/controllers/userController.js
-
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/user");
@@ -9,9 +7,7 @@ function norm(str = "") {
   return str.trim().toLowerCase();
 }
 
-// =======================
-// REGISTER
-// =======================
+// ============ REGISTER ============
 exports.register = async (req, res) => {
   try {
     const {
@@ -26,34 +22,29 @@ exports.register = async (req, res) => {
       answer3,
     } = req.body;
 
-    if (!firstName || !lastName) {
+    if (!firstName || !lastName)
       return res.status(400).json({ message: "Name is required" });
-    }
 
-    if (!phone && !email) {
+    if (!phone && !email)
       return res
         .status(400)
         .json({ message: "Provide phone or email for login" });
-    }
 
-    if (!password || password !== confirmPassword) {
+    if (!password || password !== confirmPassword)
       return res
         .status(400)
         .json({ message: "Password and confirm must match" });
-    }
 
     // check unique phone/email
     if (phone) {
       const existsPhone = await User.findOne({ phone });
-      if (existsPhone) {
+      if (existsPhone)
         return res.status(400).json({ message: "Phone already registered" });
-      }
     }
     if (email) {
       const existsEmail = await User.findOne({ email });
-      if (existsEmail) {
+      if (existsEmail)
         return res.status(400).json({ message: "Email already registered" });
-      }
     }
 
     const hashed = await bcrypt.hash(password, 10);
@@ -86,36 +77,29 @@ exports.register = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("REGISTER error:", err);
+    console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 };
 
-// =======================
-// LOGIN
-// =======================
+// ============ LOGIN ============
 exports.login = async (req, res) => {
   try {
     const { identifier, password } = req.body; // phone OR email
 
-    if (!identifier || !password) {
+    if (!identifier || !password)
       return res
         .status(400)
         .json({ message: "Identifier and password required" });
-    }
 
     const user = await User.findOne({
       $or: [{ phone: identifier }, { email: identifier }],
     });
 
-    if (!user) {
-      return res.status(400).json({ message: "User not found" });
-    }
+    if (!user) return res.status(400).json({ message: "User not found" });
 
     const match = await bcrypt.compare(password, user.password);
-    if (!match) {
-      return res.status(400).json({ message: "Wrong password" });
-    }
+    if (!match) return res.status(400).json({ message: "Wrong password" });
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "7d",
@@ -132,29 +116,25 @@ exports.login = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("LOGIN error:", err);
+    console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 };
 
-// =======================
-// RESET PASSWORD
-// =======================
+// ============ RESET PASSWORD ============
 exports.resetPassword = async (req, res) => {
   try {
     const { identifier, answer1, answer2, answer3, newPassword } = req.body;
 
-    if (!identifier || !newPassword) {
+    if (!identifier || !newPassword)
       return res.status(400).json({ message: "Missing fields" });
-    }
 
     const user = await User.findOne({
       $or: [{ phone: identifier }, { email: identifier }],
     });
 
-    if (!user) {
+    if (!user)
       return res.status(400).json({ message: "User not found for reset" });
-    }
 
     const s = user.securityAnswers;
     if (
@@ -162,9 +142,7 @@ exports.resetPassword = async (req, res) => {
       norm(answer2) !== s.answer2 ||
       norm(answer3) !== s.answer3
     ) {
-      return res
-        .status(400)
-        .json({ message: "Security answers do not match" });
+      return res.status(400).json({ message: "Security answers do not match" });
     }
 
     user.password = await bcrypt.hash(newPassword, 10);
@@ -172,29 +150,22 @@ exports.resetPassword = async (req, res) => {
 
     res.json({ message: "Password reset successful" });
   } catch (err) {
-    console.error("RESET PASSWORD error:", err);
+    console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 };
 
-// =======================
-// GET CURRENT USER (AUTH)
-// =======================
+// ============ GET CURRENT USER ============
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select(
-      "-password -securityAnswers"
-    );
+    const user = await User.findById(req.user.id).select("-password -securityAnswers");
     res.json(user);
   } catch (err) {
-    console.error("GET ME error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
 
-// =======================
-// UPDATE PROFILE (AUTH)
-// =======================
+// ============ UPDATE DRIVER PROFILE ============
 exports.updateProfile = async (req, res) => {
   try {
     const {
@@ -203,7 +174,7 @@ exports.updateProfile = async (req, res) => {
       licenseNumber,
       nationalId,
       languages,
-      contactPhone,
+      contactPhone, // this is separate, login phone/email remains locked
     } = req.body;
 
     const user = await User.findById(req.user.id);
@@ -243,78 +214,7 @@ exports.updateProfile = async (req, res) => {
     await user.save();
     res.json({ message: "Profile updated", user });
   } catch (err) {
-    console.error("UPDATE PROFILE (auth) error:", err);
+    console.error(err);
     res.status(500).json({ message: "Server error" });
-  }
-};
-
-// =======================
-// GET PROFILE BY ID (NO AUTH)
-// used by frontend: GET /api/user/profile/:userId
-// =======================
-exports.getProfileById = async (req, res) => {
-  try {
-    const userId = req.params.userId;
-
-    const user = await User.findById(userId).select(
-      "-password -securityAnswers"
-    );
-
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
-    }
-
-    res.json({ success: true, user });
-  } catch (err) {
-    console.error("getProfileById error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-};
-
-// =======================
-// UPDATE PROFILE BY ID (NO AUTH)
-// used by frontend: PUT /api/user/profile/:userId
-// =======================
-exports.updateProfileById = async (req, res) => {
-  try {
-    const userId = req.params.userId;
-
-    let updates = { ...req.body };
-
-    // Parse languages if passed as JSON string
-    if (updates.languages) {
-      try {
-        updates.languages = JSON.parse(updates.languages);
-      } catch {
-        updates.languages = [updates.languages];
-      }
-    }
-
-    // profile image file
-    if (req.files?.profileImage?.[0]) {
-      updates.profileImage = req.files.profileImage[0].path;
-    }
-
-    // profile docs files
-    if (req.files?.profileDocs) {
-      updates.profileDocuments = req.files.profileDocs.map((f) => f.path);
-    }
-
-    const user = await User.findByIdAndUpdate(userId, updates, {
-      new: true,
-    }).select("-password -securityAnswers");
-
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
-    }
-
-    res.json({ success: true, user });
-  } catch (err) {
-    console.error("updateProfileById error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
   }
 };
