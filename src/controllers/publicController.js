@@ -1,7 +1,7 @@
 // src/controllers/publicController.js
 
 const Vehicle = require("../models/Vehicle");
-const User = require("../models/user");
+const User = require("../models/User");
 
 // PUBLIC: list all vehicles with SAFE driver data only
 exports.getPublicVehicles = async (req, res) => {

@@ -1,5 +1,5 @@
 const Vehicle = require("../models/Vehicle");
-const User = require("../models/user");
+const User = require("../models/User");
 
 /**
  * Clean uploaded file paths so they work on Windows, Linux and Next.js
