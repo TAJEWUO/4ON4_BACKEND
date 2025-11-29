@@ -1,6 +1,8 @@
 // src/server.js
 
+// MUST be first
 require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const connectDB = require("./config/db");
@@ -13,14 +15,16 @@ const publicRoutes = require("./routes/publicRoutes");
 
 const app = express();
 
-// Connect DB
+// ===============================
+// CONNECT DATABASE (after dotenv)
+// ===============================
 connectDB();
 
 // Body parser
 app.use(express.json());
 
 // ===============================
-// FIXED CORS — FINAL & CORRECT
+// CORS CONFIGURATION (FINAL)
 // ===============================
 app.use(
   cors({
@@ -30,30 +34,33 @@ app.use(
   })
 );
 
-// REQUIRED for POST/PUT/DELETE — fixes "Failed to fetch"
+// Allow preflight
 app.options("*", cors());
 
 // ===============================
-// FIXED STATIC FILE PATH
+// STATIC FILE SERVING (UPLOADS)
 // ===============================
-// __dirname → /src
-// uploads folder → /uploads (parent folder)
 const uploadsPath = path.join(__dirname, "../uploads");
 console.log("Serving uploads from:", uploadsPath);
 
 app.use("/uploads", express.static(uploadsPath));
 
-// Routes
+// ===============================
+// ROUTES
+// ===============================
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/public", publicRoutes);
 
-// Health check
+// Health Check
 app.get("/", (req, res) => {
   res.json({ status: "Backend is running" });
 });
 
-// Start server
+// ===============================
+// START SERVER
+// ===============================
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
+
