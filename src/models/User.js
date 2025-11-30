@@ -19,6 +19,11 @@ const userSchema = new mongoose.Schema(
     emailVerificationToken: String,
     emailVerificationExpires: Date,
 
+    // ⭐ NEW: 6-digit OTP code + expiry
+    emailVerificationCode: String,
+    emailVerificationCodeExpires: Date,
+
+
     // Reset PIN
     resetPasswordToken: String,
     resetPasswordExpires: Date,

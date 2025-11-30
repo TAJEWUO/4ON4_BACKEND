@@ -1,5 +1,6 @@
 // src/controllers/authController.js
 const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const {
@@ -9,7 +10,7 @@ const {
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://4on4.site";
 
-// Create access + refresh tokens
+// Helper: create JWT access token (2h) + refresh token (14d)
 const makeTokens = (userId) => {
   const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
     expiresIn: "2h",
@@ -26,11 +27,7 @@ const makeTokens = (userId) => {
   return { accessToken, refreshToken };
 };
 
-// Helpers
-const phoneRegex = /^0(7|1)\d{8}$/; // 07xxxxxxxx or 01xxxxxxxx
-const pinRegex = /^\d{4}$/;        // exactly 4 digits
-
-// 1) START REGISTRATION: email -> send verification link
+// 1) START REGISTRATION: email -> send 6-digit verification code
 exports.registerStart = async (req, res) => {
   try {
     const { email } = req.body;
@@ -41,35 +38,37 @@ exports.registerStart = async (req, res) => {
         .json({ success: false, message: "Email is required" });
     }
 
+    // Check if email already used and fully registered
     let existingUser = await User.findOne({ email });
 
     if (existingUser && existingUser.emailVerified) {
       return res.status(400).json({
         success: false,
         message:
-          "Email is already registered. Try logging in or resetting PIN.",
+          "Email is already registered. Try logging in or resetting password.",
       });
     }
 
-    // Create or reuse unverified user
+    // If user exists but not verified, reuse; else create new
     if (!existingUser) {
       existingUser = new User({ email, emailVerified: false });
     }
 
-    const token = crypto.randomBytes(32).toString("hex");
-    existingUser.emailVerificationToken = token;
-    existingUser.emailVerificationExpires = new Date(
-      Date.now() + 60 * 60 * 1000
-    ); // 1 hour
+    // Generate 6-digit numeric code (e.g. 483192)
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+    existingUser.emailVerificationCode = code;
+    existingUser.emailVerificationCodeExpires = new Date(
+      Date.now() + 60 * 1000
+    ); // 1 minute
     await existingUser.save();
 
-    const verifyUrl = `${FRONTEND_URL}/user/auth/verify?token=${token}`;
-
-    await sendVerificationEmail(email, verifyUrl);
+    // Send email with code
+    await sendVerificationEmail(email, code);
 
     return res.json({
       success: true,
-      message: "Verification email sent. Please check your inbox.",
+      message: "Verification code sent. Check your email.",
     });
   } catch (err) {
     console.error("registerStart error:", err);
@@ -77,35 +76,79 @@ exports.registerStart = async (req, res) => {
   }
 };
 
-// 2) COMPLETE REGISTRATION: token + phone + 4-digit PIN
+// 2) VERIFY EMAIL CODE: email + 6-digit code → issue verification token
+exports.verifyEmailCode = async (req, res) => {
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email and code are required" });
+    }
+
+    const user = await User.findOne({ email });
+    if (
+      !user ||
+      !user.emailVerificationCode ||
+      user.emailVerificationCode !== code
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid verification code" });
+    }
+
+    if (!user.emailVerificationCodeExpires || user.emailVerificationCodeExpires < new Date()) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Verification code has expired" });
+    }
+
+    // Create a token used only for completing registration (phone + PIN)
+    const token = crypto.randomBytes(32).toString("hex");
+
+    user.emailVerificationToken = token;
+    user.emailVerificationExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour for completing registration
+
+    // Clear OTP
+    user.emailVerificationCode = undefined;
+    user.emailVerificationCodeExpires = undefined;
+
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: "Email verified. Continue creating your account.",
+      token,
+    });
+  } catch (err) {
+    console.error("verifyEmailCode error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// 3) COMPLETE REGISTRATION: token + phone + PIN (4 digits)
 exports.registerComplete = async (req, res) => {
   try {
-    const { token, phone, password, confirmPassword } = req.body;
+    const { token, phone, pin, confirmPin } = req.body;
 
-    if (!token || !phone || !password || !confirmPassword) {
+    if (!token || !phone || !pin || !confirmPin) {
       return res
         .status(400)
         .json({ success: false, message: "All fields are required" });
     }
 
-    if (!phoneRegex.test(phone)) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone must start with 07 or 01 and be 10 digits.",
-      });
+    if (pin !== confirmPin) {
+      return res
+        .status(400)
+        .json({ success: false, message: "PINs do not match" });
     }
 
-    if (!pinRegex.test(password)) {
+    if (!/^\d{4}$/.test(pin)) {
       return res.status(400).json({
         success: false,
         message: "PIN must be exactly 4 digits.",
       });
-    }
-
-    if (password !== confirmPassword) {
-      return res
-        .status(400)
-        .json({ success: false, message: "PINs do not match." });
     }
 
     const user = await User.findOne({
@@ -116,22 +159,24 @@ exports.registerComplete = async (req, res) => {
     if (!user) {
       return res.status(400).json({
         success: false,
-        message: "Invalid or expired verification link",
+        message: "Invalid or expired registration session",
       });
     }
 
-    // Ensure phone not in use by another user
+    // Ensure phone not already in use
     const existingPhone = await User.findOne({ phone });
     if (existingPhone && existingPhone._id.toString() !== user._id.toString()) {
       return res.status(400).json({
         success: false,
-        message: "Phone number already registered.",
+        message: "Phone number already in use. Use a different one.",
       });
     }
 
+    const hashedPin = await bcrypt.hash(pin, 10);
+
     user.phone = phone;
-    user.identifier = phone;
-    user.password = password; // PLAIN 4-digit PIN (not secure)
+    user.identifier = phone; // for backwards compatibility
+    user.password = hashedPin; // store hashed 4-digit PIN as password
     user.emailVerified = true;
     user.emailVerificationToken = undefined;
     user.emailVerificationExpires = undefined;
