@@ -1,40 +1,29 @@
 // src/models/User.js
 const mongoose = require("mongoose");
 
-const UserSchema = new mongoose.Schema({
-  // Phone is the main username for login
-  phone: { type: String, unique: true, sparse: true },
+const userSchema = new mongoose.Schema(
+  {
+    email: { type: String, unique: true, sparse: true },
+    emailVerified: { type: Boolean, default: false },
 
-  // Email used for verification + password reset
-  email: { type: String, unique: true, sparse: true },
+    // Phone stored as 07xxxxxxxx or 01xxxxxxxx
+    phone: { type: String, unique: true, sparse: true },
 
-  // Keep identifier for backward compatibility (we will store phone in it)
-  identifier: { type: String, unique: true, sparse: true },
+    // Optional alias reused from old code
+    identifier: { type: String },
 
-  // Hashed password
-  password: { type: String },
+    // 4-digit PIN stored as plain string (NOT secure)
+    password: { type: String },
 
-  // Email verification
-  emailVerified: { type: Boolean, default: false },
-  emailVerificationToken: String,
-  emailVerificationExpires: Date,
+    // Email verification
+    emailVerificationToken: String,
+    emailVerificationExpires: Date,
 
-  // Password reset
-  resetPasswordToken: String,
-  resetPasswordExpires: Date,
+    // Reset PIN
+    resetPasswordToken: String,
+    resetPasswordExpires: Date,
+  },
+  { timestamps: true }
+);
 
-  // Driver profile details (existing fields)
-  firstName: String,
-  lastName: String,
-  citizenship: String,
-  level: String,
-  licenseNumber: String,
-  nationalId: String,
-  languages: [String],
-  profileImage: String,
-  profileDocuments: [String],
-
-  createdAt: { type: Date, default: Date.now },
-});
-
-module.exports = mongoose.model("User", UserSchema);
+module.exports = mongoose.model("User", userSchema);

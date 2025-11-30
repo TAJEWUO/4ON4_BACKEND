@@ -1,24 +1,34 @@
 // src/controllers/authController.js
 const crypto = require("crypto");
-const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
-const { sendVerificationEmail, sendResetPasswordEmail } = require("../utils/emailUtils");
+const {
+  sendVerificationEmail,
+  sendResetPasswordEmail,
+} = require("../utils/emailUtils");
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://4on4.site";
 
-// Helper: create JWT access token (2h) + refresh token (14d)
+// Create access + refresh tokens
 const makeTokens = (userId) => {
   const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
     expiresIn: "2h",
   });
 
-  const refreshToken = jwt.sign({ id: userId }, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, {
-    expiresIn: "14d",
-  });
+  const refreshToken = jwt.sign(
+    { id: userId },
+    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+    {
+      expiresIn: "14d",
+    }
+  );
 
   return { accessToken, refreshToken };
 };
+
+// Helpers
+const phoneRegex = /^0(7|1)\d{8}$/; // 07xxxxxxxx or 01xxxxxxxx
+const pinRegex = /^\d{4}$/;        // exactly 4 digits
 
 // 1) START REGISTRATION: email -> send verification link
 exports.registerStart = async (req, res) => {
@@ -26,32 +36,35 @@ exports.registerStart = async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ success: false, message: "Email is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Email is required" });
     }
 
-    // Check if email already used
     let existingUser = await User.findOne({ email });
+
     if (existingUser && existingUser.emailVerified) {
       return res.status(400).json({
         success: false,
-        message: "Email is already registered. Try logging in or resetting password.",
+        message:
+          "Email is already registered. Try logging in or resetting PIN.",
       });
     }
 
-    // If user exists but not verified, reuse it; else create new
+    // Create or reuse unverified user
     if (!existingUser) {
       existingUser = new User({ email, emailVerified: false });
     }
 
-    // Generate verification token
     const token = crypto.randomBytes(32).toString("hex");
     existingUser.emailVerificationToken = token;
-    existingUser.emailVerificationExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    existingUser.emailVerificationExpires = new Date(
+      Date.now() + 60 * 60 * 1000
+    ); // 1 hour
     await existingUser.save();
 
     const verifyUrl = `${FRONTEND_URL}/user/auth/verify?token=${token}`;
 
-    // Send email with link
     await sendVerificationEmail(email, verifyUrl);
 
     return res.json({
@@ -64,17 +77,35 @@ exports.registerStart = async (req, res) => {
   }
 };
 
-// 2) COMPLETE REGISTRATION: token + phone + password
+// 2) COMPLETE REGISTRATION: token + phone + 4-digit PIN
 exports.registerComplete = async (req, res) => {
   try {
     const { token, phone, password, confirmPassword } = req.body;
 
     if (!token || !phone || !password || !confirmPassword) {
-      return res.status(400).json({ success: false, message: "All fields are required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "All fields are required" });
+    }
+
+    if (!phoneRegex.test(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone must start with 07 or 01 and be 10 digits.",
+      });
+    }
+
+    if (!pinRegex.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: "PIN must be exactly 4 digits.",
+      });
     }
 
     if (password !== confirmPassword) {
-      return res.status(400).json({ success: false, message: "Passwords do not match" });
+      return res
+        .status(400)
+        .json({ success: false, message: "PINs do not match." });
     }
 
     const user = await User.findOne({
@@ -89,20 +120,18 @@ exports.registerComplete = async (req, res) => {
       });
     }
 
-    // Ensure phone not already in use
+    // Ensure phone not in use by another user
     const existingPhone = await User.findOne({ phone });
     if (existingPhone && existingPhone._id.toString() !== user._id.toString()) {
       return res.status(400).json({
         success: false,
-        message: "Phone number already in use. Use a different one.",
+        message: "Phone number already registered.",
       });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-
     user.phone = phone;
-    user.identifier = phone; // for backwards compatibility
-    user.password = hashedPassword;
+    user.identifier = phone;
+    user.password = password; // PLAIN 4-digit PIN (not secure)
     user.emailVerified = true;
     user.emailVerificationToken = undefined;
     user.emailVerificationExpires = undefined;
@@ -128,22 +157,39 @@ exports.registerComplete = async (req, res) => {
   }
 };
 
-// 3) LOGIN: phone OR email + password
+// 3) LOGIN: phone + 4-digit PIN
 exports.loginUser = async (req, res) => {
   try {
-    const { identifier, password } = req.body;
+    const { phone, password } = req.body;
 
-    if (!identifier || !password) {
-      return res.status(400).json({ success: false, message: "Missing fields" });
+    if (!phone || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone and PIN are required.",
+      });
     }
 
-    // identifier can be phone OR email
-    const user = await User.findOne({
-      $or: [{ phone: identifier }, { email: identifier }, { identifier }],
-    });
+    if (!phoneRegex.test(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone must start with 07 or 01 and be 10 digits.",
+      });
+    }
+
+    if (!pinRegex.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: "PIN must be exactly 4 digits.",
+      });
+    }
+
+    const user = await User.findOne({ phone });
 
     if (!user) {
-      return res.status(400).json({ success: false, message: "Invalid credentials" });
+      return res.status(400).json({
+        success: false,
+        message: "Incorrect phone or PIN. Check again.",
+      });
     }
 
     if (!user.emailVerified) {
@@ -156,13 +202,15 @@ exports.loginUser = async (req, res) => {
     if (!user.password) {
       return res.status(400).json({
         success: false,
-        message: "No password set. Please complete registration or reset your password.",
+        message: "No PIN set. Please reset your PIN.",
       });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ success: false, message: "Invalid credentials" });
+    if (user.password !== password) {
+      return res.status(400).json({
+        success: false,
+        message: "Incorrect phone or PIN. Check again.",
+      });
     }
 
     const { accessToken, refreshToken } = makeTokens(user._id);
@@ -184,17 +232,21 @@ exports.loginUser = async (req, res) => {
   }
 };
 
-// 4) RESET PASSWORD: start (email)
+// 4) RESET PIN: start (by email)
 exports.resetPasswordStart = async (req, res) => {
   try {
     const { email } = req.body;
+
     if (!email) {
-      return res.status(400).json({ success: false, message: "Email is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Email is required" });
     }
 
     const user = await User.findOne({ email });
+
     if (!user) {
-      // Don't reveal if user exists
+      // Don't reveal whether user exists
       return res.json({
         success: true,
         message: "If that email is registered, a reset link has been sent.",
@@ -206,7 +258,7 @@ exports.resetPasswordStart = async (req, res) => {
     user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     await user.save();
 
-    const resetUrl = `${FRONTEND_URL}/user/auth/reset?token=${token}`;
+    const resetUrl = `${FRONTEND_URL}/user/auth/reset-password?token=${token}`;
 
     await sendResetPasswordEmail(email, resetUrl);
 
@@ -220,17 +272,28 @@ exports.resetPasswordStart = async (req, res) => {
   }
 };
 
-// 5) RESET PASSWORD: complete (token + new password)
+// 5) RESET PIN: complete (token + 4-digit PIN)
 exports.resetPasswordComplete = async (req, res) => {
   try {
     const { token, password, confirmPassword } = req.body;
 
     if (!token || !password || !confirmPassword) {
-      return res.status(400).json({ success: false, message: "All fields are required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "All fields are required" });
+    }
+
+    if (!pinRegex.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: "PIN must be exactly 4 digits.",
+      });
     }
 
     if (password !== confirmPassword) {
-      return res.status(400).json({ success: false, message: "Passwords do not match" });
+      return res
+        .status(400)
+        .json({ success: false, message: "PINs do not match." });
     }
 
     const user = await User.findOne({
@@ -245,9 +308,7 @@ exports.resetPasswordComplete = async (req, res) => {
       });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    user.password = hashedPassword;
+    user.password = password; // plain 4-digit PIN
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
 
@@ -255,7 +316,7 @@ exports.resetPasswordComplete = async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Password reset successful. You can now log in with your new password.",
+      message: "PIN reset successful. You can now log in with your new PIN.",
     });
   } catch (err) {
     console.error("resetPasswordComplete error:", err);
