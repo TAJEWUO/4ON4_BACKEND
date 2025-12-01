@@ -10,11 +10,38 @@ const {
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://4on4.site";
 
-// Regex for Kenyan numbers: 07xxxxxxxx or 01xxxxxxxx
-const phoneRegex = /^(07|01)\d{8}$/;
+/* -------------------------------------------------------
+   HELPER FUNCTIONS (FIXED)
+--------------------------------------------------------*/
+
+// Normalize a Kenyan phone number to 07xxxxxxxx or 01xxxxxxxx
+function normalizePhone(phone) {
+  if (!phone) return "";
+  const d = phone.replace(/\D/g, "");
+
+  if (d.startsWith("07") || d.startsWith("01")) return d.slice(0, 10);
+  if (d.startsWith("7")) return "07" + d.slice(1, 9);
+  if (d.startsWith("1")) return "01" + d.slice(1, 9);
+
+  return d.slice(0, 10);
+}
+
+// Used for DB search — last 9 digits only (e.g., 7xxxxxxxx)
+function getPhoneTail(phone) {
+  const d = phone.replace(/\D/g, "");
+  return d.slice(-9); // store last 9 digits in DB
+}
+
+// Full phone with +254 (same for all)
+function makePhoneFull(phone) {
+  const d = phone.replace(/\D/g, "");
+  return "+254" + d.slice(-9);
+}
+
+// PIN (4 digits)
 const pinRegex = /^\d{4}$/;
 
-// Generate access + refresh tokens
+// TOKEN CREATOR
 const makeTokens = (userId) => {
   const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
     expiresIn: "2h",
@@ -30,7 +57,7 @@ const makeTokens = (userId) => {
 };
 
 /* -------------------------------------------------------
-   1) START REGISTRATION: EMAIL → SEND OTP
+   1) EMAIL → SEND OTP
 --------------------------------------------------------*/
 exports.registerStart = async (req, res) => {
   try {
@@ -48,7 +75,6 @@ exports.registerStart = async (req, res) => {
       });
     }
 
-    // Create user object if new
     if (!user) {
       user = new User({ email, emailVerified: false });
     }
@@ -56,7 +82,7 @@ exports.registerStart = async (req, res) => {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
 
     user.emailVerificationCode = code;
-    user.emailVerificationCodeExpires = new Date(Date.now() + 60 * 1000); // 1 min
+    user.emailVerificationCodeExpires = new Date(Date.now() + 120 * 1000); // 2 mins
     await user.save();
 
     await sendVerificationEmail(email, code);
@@ -72,7 +98,7 @@ exports.registerStart = async (req, res) => {
 };
 
 /* -------------------------------------------------------
-   2) VERIFY EMAIL OTP → ISSUE VERIFICATION TOKEN
+   2) VERIFY EMAIL OTP
 --------------------------------------------------------*/
 exports.verifyEmailCode = async (req, res) => {
   try {
@@ -85,21 +111,24 @@ exports.verifyEmailCode = async (req, res) => {
 
     const user = await User.findOne({ email });
 
-    if (!user || user.emailVerificationCode !== code)
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid verification code" });
+    if (!user || user.emailVerificationCode !== code) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid verification code",
+      });
+    }
 
     if (user.emailVerificationCodeExpires < new Date()) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Verification code expired" });
+      return res.status(400).json({
+        success: false,
+        message: "Verification code expired",
+      });
     }
 
     const token = crypto.randomBytes(32).toString("hex");
 
     user.emailVerificationToken = token;
-    user.emailVerificationExpires = new Date(Date.now() + 3600 * 1000); // 1 hr
+    user.emailVerificationExpires = new Date(Date.now() + 3600 * 1000);
 
     user.emailVerificationCode = undefined;
     user.emailVerificationCodeExpires = undefined;
@@ -118,40 +147,31 @@ exports.verifyEmailCode = async (req, res) => {
 };
 
 /* -------------------------------------------------------
-   3) COMPLETE REGISTRATION: token + phone + 4-digit PIN
+   3) COMPLETE REGISTRATION
 --------------------------------------------------------*/
 exports.registerComplete = async (req, res) => {
   try {
     const { token, phone, pin, confirmPin } = req.body;
 
-    if (!token || !phone || !pin || !confirmPin) {
-      return res.status(400).json({
-        success: false,
-        message: "All fields are required",
-      });
-    }
+    if (!token || !phone || !pin || !confirmPin)
+      return res
+        .status(400)
+        .json({ success: false, message: "All fields are required" });
 
-    if (pin !== confirmPin) {
-      return res.status(400).json({
-        success: false,
-        message: "PINs do not match.",
-      });
-    }
+    if (pin !== confirmPin)
+      return res.status(400).json({ success: false, message: "PINs do not match." });
 
-    if (!/^\d{4}$/.test(pin)) {
-      return res.status(400).json({
-        success: false,
-        message: "PIN must be 4 digits.",
-      });
-    }
+    if (!pinRegex.test(pin))
+      return res
+        .status(400)
+        .json({ success: false, message: "PIN must be 4 digits" });
 
     const normalized = normalizePhone(phone);
-    if (!normalized) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid phone format.",
-      });
-    }
+
+    if (!normalized)
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid phone format." });
 
     const phoneTail = getPhoneTail(normalized);
     const phoneFull = makePhoneFull(normalized);
@@ -161,28 +181,21 @@ exports.registerComplete = async (req, res) => {
       emailVerificationExpires: { $gt: Date.now() },
     });
 
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired registration session",
-      });
-    }
+    if (!user)
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid or expired verification token" });
 
-    // ensure phone not used
     const existing = await User.findOne({ phoneTail });
-    if (existing && existing._id.toString() !== user._id.toString()) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone number already in use.",
-      });
-    }
 
-    // hash PIN
-    const hashedPin = await bcrypt.hash(pin, 10);
+    if (existing && existing._id.toString() !== user._id.toString())
+      return res
+        .status(400)
+        .json({ success: false, message: "Phone already in use" });
 
     user.phoneFull = phoneFull;
     user.phoneTail = phoneTail;
-    user.password = hashedPin;
+    user.password = await bcrypt.hash(pin, 10);
 
     user.emailVerified = true;
     user.emailVerificationToken = undefined;
@@ -198,7 +211,7 @@ exports.registerComplete = async (req, res) => {
       user: {
         id: user._id,
         email: user.email,
-        phone: phoneFull,
+        phone: user.phoneFull,
       },
       accessToken,
       refreshToken,
@@ -210,7 +223,7 @@ exports.registerComplete = async (req, res) => {
 };
 
 /* -------------------------------------------------------
-   4) LOGIN: phone + PIN (hashed)
+   4) LOGIN (Phone + PIN)
 --------------------------------------------------------*/
 exports.loginUser = async (req, res) => {
   try {
@@ -224,39 +237,26 @@ exports.loginUser = async (req, res) => {
     }
 
     const normalized = normalizePhone(phone);
-    if (!normalized) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid phone number.",
-      });
-    }
-
     const phoneTail = getPhoneTail(normalized);
 
     const user = await User.findOne({ phoneTail });
 
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: "Incorrect phone or PIN.",
-      });
-    }
+    if (!user)
+      return res
+        .status(400)
+        .json({ success: false, message: "Incorrect phone or PIN." });
 
-    if (!user.emailVerified) {
-      return res.status(400).json({
-        success: false,
-        message: "Please verify your email first.",
-      });
-    }
+    if (!user.emailVerified)
+      return res
+        .status(400)
+        .json({ success: false, message: "Verify your email first" });
 
-    const pinCorrect = await bcrypt.compare(password, user.password);
+    const match = await bcrypt.compare(password, user.password);
 
-    if (!pinCorrect) {
-      return res.status(400).json({
-        success: false,
-        message: "Incorrect phone or PIN.",
-      });
-    }
+    if (!match)
+      return res
+        .status(400)
+        .json({ success: false, message: "Incorrect phone or PIN." });
 
     const { accessToken, refreshToken } = makeTokens(user._id);
 
@@ -278,7 +278,7 @@ exports.loginUser = async (req, res) => {
 };
 
 /* -------------------------------------------------------
-   5) RESET PIN: start (email → send reset link)
+   5) RESET PIN REQUEST (email → send link)
 --------------------------------------------------------*/
 exports.resetPasswordStart = async (req, res) => {
   try {
@@ -292,7 +292,7 @@ exports.resetPasswordStart = async (req, res) => {
     if (!user) {
       return res.json({
         success: true,
-        message: "If registered, a reset link will be sent.",
+        message: "If registered, a reset link was sent.",
       });
     }
 
@@ -302,12 +302,12 @@ exports.resetPasswordStart = async (req, res) => {
     user.resetPasswordExpires = new Date(Date.now() + 3600 * 1000);
     await user.save();
 
-    const resetUrl = `${FRONTEND_URL}/user/auth/reset-password?token=${token}`;
-    await sendResetPasswordEmail(email, resetUrl);
+    const url = `${FRONTEND_URL}/user/auth/reset-pin?token=${token}`;
+    await sendResetPasswordEmail(email, url);
 
     return res.json({
       success: true,
-      message: "If registered, a reset link will be sent.",
+      message: "If registered, a reset link was sent.",
     });
   } catch (err) {
     console.error("resetPasswordStart error:", err);
@@ -316,7 +316,7 @@ exports.resetPasswordStart = async (req, res) => {
 };
 
 /* -------------------------------------------------------
-   6) RESET PIN: complete
+   6) RESET PIN COMPLETE
 --------------------------------------------------------*/
 exports.resetPasswordComplete = async (req, res) => {
   try {
@@ -325,7 +325,7 @@ exports.resetPasswordComplete = async (req, res) => {
     if (!token || !password || !confirmPassword)
       return res
         .status(400)
-        .json({ success: false, message: "All fields required" });
+        .json({ success: false, message: "All fields are required" });
 
     if (!pinRegex.test(password))
       return res
@@ -347,8 +347,7 @@ exports.resetPasswordComplete = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Invalid or expired reset link" });
 
-    const hashedPin = await bcrypt.hash(password, 10);
-    user.password = hashedPin;
+    user.password = await bcrypt.hash(password, 10);
 
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
@@ -357,7 +356,7 @@ exports.resetPasswordComplete = async (req, res) => {
 
     return res.json({
       success: true,
-      message: "PIN reset successfully",
+      message: "PIN reset successful",
     });
   } catch (err) {
     console.error("resetPasswordComplete error:", err);
