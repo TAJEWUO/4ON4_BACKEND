@@ -124,53 +124,67 @@ exports.registerComplete = async (req, res) => {
   try {
     const { token, phone, pin, confirmPin } = req.body;
 
-    if (!token || !phone || !pin || !confirmPin)
-      return res
-        .status(400)
-        .json({ success: false, message: "All fields required" });
-
-    if (pin !== confirmPin)
-      return res
-        .status(400)
-        .json({ success: false, message: "PINs do not match" });
-
-    if (!pinRegex.test(pin))
-      return res
-        .status(400)
-        .json({ success: false, message: "PIN must be 4 digits" });
-
-    if (!phoneRegex.test(phone))
+    if (!token || !phone || !pin || !confirmPin) {
       return res.status(400).json({
         success: false,
-        message: "Phone must be 07xxxxxxxx or 01xxxxxxxx",
+        message: "All fields are required",
       });
+    }
+
+    if (pin !== confirmPin) {
+      return res.status(400).json({
+        success: false,
+        message: "PINs do not match.",
+      });
+    }
+
+    if (!/^\d{4}$/.test(pin)) {
+      return res.status(400).json({
+        success: false,
+        message: "PIN must be 4 digits.",
+      });
+    }
+
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid phone format.",
+      });
+    }
+
+    const phoneTail = getPhoneTail(normalized);
+    const phoneFull = makePhoneFull(normalized);
 
     const user = await User.findOne({
       emailVerificationToken: token,
-      emailVerificationExpires: { $gt: new Date() },
+      emailVerificationExpires: { $gt: Date.now() },
     });
 
-    if (!user)
+    if (!user) {
       return res.status(400).json({
         success: false,
         message: "Invalid or expired registration session",
       });
+    }
 
-    const phoneExists = await User.findOne({ phone });
-    if (phoneExists && phoneExists._id.toString() !== user._id.toString()) {
+    // ensure phone not used
+    const existing = await User.findOne({ phoneTail });
+    if (existing && existing._id.toString() !== user._id.toString()) {
       return res.status(400).json({
         success: false,
-        message: "Phone already in use",
+        message: "Phone number already in use.",
       });
     }
 
+    // hash PIN
     const hashedPin = await bcrypt.hash(pin, 10);
 
-    user.phone = phone;
-    user.identifier = phone;
+    user.phoneFull = phoneFull;
+    user.phoneTail = phoneTail;
     user.password = hashedPin;
-    user.emailVerified = true;
 
+    user.emailVerified = true;
     user.emailVerificationToken = undefined;
     user.emailVerificationExpires = undefined;
 
@@ -180,14 +194,14 @@ exports.registerComplete = async (req, res) => {
 
     return res.json({
       success: true,
+      message: "Account created successfully",
       user: {
         id: user._id,
         email: user.email,
-        phone: user.phone,
+        phone: phoneFull,
       },
       accessToken,
       refreshToken,
-      message: "Account created successfully.",
     });
   } catch (err) {
     console.error("registerComplete error:", err);
@@ -200,54 +214,62 @@ exports.registerComplete = async (req, res) => {
 --------------------------------------------------------*/
 exports.loginUser = async (req, res) => {
   try {
-    const { phone, password } = req.body; // password = PIN
+    const { phone, password } = req.body;
 
-    if (!phone || !password)
-      return res
-        .status(400)
-        .json({ success: false, message: "Phone and PIN required" });
-
-    if (!phoneRegex.test(phone))
+    if (!phone || !password) {
       return res.status(400).json({
         success: false,
-        message: "Phone must be 07xxxxxxxx or 01xxxxxxxx",
+        message: "Phone and PIN are required.",
       });
+    }
 
-    if (!pinRegex.test(password))
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
       return res.status(400).json({
         success: false,
-        message: "PIN must be 4 digits",
+        message: "Invalid phone number.",
       });
+    }
 
-    const user = await User.findOne({ phone });
-    if (!user)
-      return res
-        .status(400)
-        .json({ success: false, message: "Incorrect phone or PIN" });
+    const phoneTail = getPhoneTail(normalized);
 
-    if (!user.emailVerified)
-      return res
-        .status(400)
-        .json({ success: false, message: "Email not verified" });
+    const user = await User.findOne({ phoneTail });
 
-    const pinMatch = await bcrypt.compare(password, user.password);
-    if (!pinMatch)
-      return res
-        .status(400)
-        .json({ success: false, message: "Incorrect phone or PIN" });
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Incorrect phone or PIN.",
+      });
+    }
+
+    if (!user.emailVerified) {
+      return res.status(400).json({
+        success: false,
+        message: "Please verify your email first.",
+      });
+    }
+
+    const pinCorrect = await bcrypt.compare(password, user.password);
+
+    if (!pinCorrect) {
+      return res.status(400).json({
+        success: false,
+        message: "Incorrect phone or PIN.",
+      });
+    }
 
     const { accessToken, refreshToken } = makeTokens(user._id);
 
     return res.json({
       success: true,
+      message: "Login successful",
       user: {
         id: user._id,
         email: user.email,
-        phone: user.phone,
+        phone: user.phoneFull,
       },
       accessToken,
       refreshToken,
-      message: "Login successful",
     });
   } catch (err) {
     console.error("loginUser error:", err);

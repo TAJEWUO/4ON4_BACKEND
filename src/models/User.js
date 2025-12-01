@@ -1,30 +1,23 @@
-// src/models/User.js
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
   {
-    email: { type: String, unique: true, sparse: true },
+    email: { type: String, required: true, unique: true },
+
+    // New phone structure
+    phoneFull: { type: String, unique: true, sparse: true }, 
+    phoneTail: { type: String, index: true }, // last 8 digits for login matching
+
+    password: String, // hashed 4-digit PIN
+
     emailVerified: { type: Boolean, default: false },
 
-    // Phone stored as 07xxxxxxxx or 01xxxxxxxx
-    phone: { type: String, unique: true, sparse: true },
-
-    // Optional alias reused from old code
-    identifier: { type: String },
-
-    // 4-digit PIN stored as plain string (NOT secure)
-    password: { type: String },
-
-    // Email verification
-    emailVerificationToken: String,
-    emailVerificationExpires: Date,
-
-    // ⭐ NEW: 6-digit OTP code + expiry
     emailVerificationCode: String,
     emailVerificationCodeExpires: Date,
 
+    emailVerificationToken: String,
+    emailVerificationExpires: Date,
 
-    // Reset PIN
     resetPasswordToken: String,
     resetPasswordExpires: Date,
   },
