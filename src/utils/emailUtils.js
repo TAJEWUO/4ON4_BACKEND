@@ -1,7 +1,6 @@
 // src/utils/emailUtils.js
 const nodemailer = require("nodemailer");
 
-// Create transporter (Gmail or SMTP)
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -10,53 +9,36 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-/* ======================================================
-   SEND VERIFICATION OTP (REGISTER)
-======================================================= */
 exports.sendVerificationEmail = async (email, code) => {
   try {
     await transporter.sendMail({
       from: `"4ON4" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: "Your 4ON4 Verification Code",
-      html: `
-        <div style="font-size:16px;">
-          <p>Your 4ON4 verification code is:</p>
-          <h2 style="font-size:28px;letter-spacing:4px;">${code}</h2>
-          <p>This code expires in <b>2 minutes</b>.</p>
-        </div>
-      `,
+      subject: "4ON4 Email Verification Code",
+      text: `Your verification code is: ${code}`,
+      html: `<p>Your verification code is: <b>${code}</b></p>`,
     });
 
-    return true; // ⭐ VERY IMPORTANT!
+    return true; // ✔️ FIXED — ALWAYS return true on success
   } catch (err) {
-    console.error("Email sending error:", err);
-    return false;
+    console.error("Email send ERROR:", err);
+    return false; // ✔️ will trigger proper error
   }
 };
 
-/* ======================================================
-   SEND RESET PASSWORD / RESET PIN EMAIL
-======================================================= */
-exports.sendResetPasswordEmail = async (email, link) => {
+exports.sendResetPasswordEmail = async (email, url) => {
   try {
     await transporter.sendMail({
       from: `"4ON4" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: "Reset your 4ON4 PIN",
-      html: `
-        <div style="font-size:16px;">
-          <p>You requested to reset your PIN.</p>
-          <p>Click the link below:</p>
-          <a href="${link}" style="font-size:18px;">Reset PIN</a>
-          <p>This link expires in 1 hour.</p>
-        </div>
-      `,
+      subject: "Reset Your 4ON4 Account PIN",
+      text: `Reset your PIN using this link: ${url}`,
+      html: `<p>Reset your PIN using this link:</p><a href="${url}">${url}</a>`,
     });
 
-    return true; // ⭐ VERY IMPORTANT!
+    return true; // ✔️ FIXED
   } catch (err) {
-    console.error("Reset email error:", err);
+    console.error("Email send ERROR:", err);
     return false;
   }
 };
