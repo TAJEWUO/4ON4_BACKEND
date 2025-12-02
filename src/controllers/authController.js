@@ -62,41 +62,45 @@ const makeTokens = (userId) => {
 exports.registerStart = async (req, res) => {
   try {
     const { email } = req.body;
+
     if (!email)
       return res.status(400).json({ success: false, message: "Email required" });
 
     let user = await User.findOne({ email });
 
-    // If already registered & verified → stop
     if (user && user.emailVerified) {
       return res.status(400).json({
         success: false,
-        message: "Email already registered",
+        message: "Email already registered.",
       });
     }
 
-    // If new, create blank user
+    // Create new unverified account placeholder
     if (!user) {
       user = new User({ email, emailVerified: false });
     }
 
-    // OTP → 6 digits
+    // Generate 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
 
     user.emailVerificationCode = code;
-    user.emailVerificationCodeExpires = new Date(Date.now() + 2 * 60 * 1000); // 2 mins
+    user.emailVerificationCodeExpires = new Date(Date.now() + 2 * 60 * 1000);
     await user.save();
 
-    // SEND EMAIL
+    // 🚨 CRITICAL: Check result of email sending
     const sent = await sendVerificationEmail(email, code);
+
     if (!sent) {
       return res.status(500).json({
         success: false,
-        message: "Failed to send verification code",
+        message: "Could not send verification email",
       });
     }
 
-    return res.json({ success: true, message: "Verification code sent." });
+    return res.json({
+      success: true,
+      message: "Verification code sent",
+    });
   } catch (err) {
     console.error("registerStart error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
