@@ -11,7 +11,7 @@ const {
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://4on4.site";
 
 /* ======================================================
-    HELPER FUNCTIONS (STABLE / CLEAN)
+    HELPER FUNCTIONS
 ======================================================= */
 
 // Normalize Kenyan numbers → 07xxxxxxxx or 01xxxxxxxx only
@@ -87,10 +87,11 @@ exports.registerStart = async (req, res) => {
     user.emailVerificationCodeExpires = new Date(Date.now() + 2 * 60 * 1000);
     await user.save();
 
-    // 🚨 CRITICAL: Check result of email sending
-    const sent = await sendVerificationEmail(email, code);
-
-    if (!sent) {
+    // Treat email send as "success unless it throws"
+    try {
+      await sendVerificationEmail(email, code);
+    } catch (err) {
+      console.error("sendVerificationEmail error:", err);
       return res.status(500).json({
         success: false,
         message: "Could not send verification email",
@@ -244,7 +245,7 @@ exports.registerComplete = async (req, res) => {
 };
 
 /* ======================================================
-    4) LOGIN  
+    4) LOGIN
 ======================================================= */
 
 exports.loginUser = async (req, res) => {
@@ -297,7 +298,7 @@ exports.loginUser = async (req, res) => {
 };
 
 /* ======================================================
-    5) RESET PIN → SEND OTP
+    5) RESET PIN → SEND LINK
 ======================================================= */
 
 exports.resetPasswordStart = async (req, res) => {
@@ -310,7 +311,7 @@ exports.resetPasswordStart = async (req, res) => {
     if (!user) {
       return res.json({
         success: true,
-        message: "If registered, OTP sent",
+        message: "If registered, reset link sent",
       });
     }
 
@@ -320,17 +321,20 @@ exports.resetPasswordStart = async (req, res) => {
     await user.save();
 
     const url = `${FRONTEND_URL}/user/auth/reset-pin?token=${token}`;
-    const sent = await sendResetPasswordEmail(email, url);
 
-    if (!sent)
+    try {
+      await sendResetPasswordEmail(email, url);
+    } catch (err) {
+      console.error("sendResetPasswordEmail error:", err);
       return res.status(500).json({
         success: false,
         message: "Failed to send reset link",
       });
+    }
 
     return res.json({
       success: true,
-      message: "If registered, OTP sent",
+      message: "If registered, reset link sent",
     });
   } catch (err) {
     console.error("resetPasswordStart error:", err);
