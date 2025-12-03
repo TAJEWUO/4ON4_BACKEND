@@ -6,22 +6,17 @@ const MAIL_FROM = process.env.MAIL_FROM || "support@4on4.world";
 const FROM_NAME = process.env.FROM_NAME || "4ON4";
 
 if (!RESEND_API_KEY) {
-  console.warn(
-    "[emailUtils] RESEND_API_KEY is missing. Emails will fail until this is set."
-  );
+  console.warn("[emailUtils] RESEND_API_KEY missing — emails cannot send.");
 }
 
-// Generic helper to call Resend API
+// INTERNAL helper
 async function sendResendEmail({ to, subject, html, text }) {
-  if (!RESEND_API_KEY) {
-    console.error("Resend API key not configured");
-    return false;
-  }
+  if (!RESEND_API_KEY) return false;
 
   try {
     const from = `${FROM_NAME} <${MAIL_FROM}>`;
 
-    const res = await axios.post(
+    const response = await axios.post(
       "https://api.resend.com/emails",
       {
         from,
@@ -35,51 +30,40 @@ async function sendResendEmail({ to, subject, html, text }) {
           Authorization: `Bearer ${RESEND_API_KEY}`,
           "Content-Type": "application/json",
         },
-        timeout: 15000, // 15s timeout to avoid hanging forever
+        timeout: 15000,
       }
     );
 
-    // If Resend returns an id, we consider it success
-    if (res.data && res.data.id) {
-      return true;
-    }
-
-    console.error("Resend response did not include id:", res.data);
-    return false;
+    return Boolean(response.data?.id);
   } catch (err) {
-    console.error("Email send ERROR (Resend):", err.response?.data || err.message);
+    console.error("Email send ERROR:", err.response?.data || err.message);
     return false;
   }
 }
 
-/**
- * Send verification email for REGISTER
- */
+// REGISTER OTP EMAIL
 exports.sendVerificationEmail = async (email, code) => {
-  const subject = "4ON4 Email Verification Code";
-  const text = `Your verification code is: ${code}`;
-  const html = `
-    <p>Your verification code is:</p>
-    <p style="font-size: 22px; font-weight: bold; letter-spacing: 4px;">
-      ${code}
-    </p>
-    <p>This code will expire in 2 minutes.</p>
-  `;
-
-  return sendResendEmail({ to: email, subject, html, text });
+  return sendResendEmail({
+    to: email,
+    subject: "4ON4 Email Verification Code",
+    text: `Your verification code is: ${code}`,
+    html: `
+      <p>Your verification code is:</p>
+      <h2>${code}</h2>
+      <p>Expires in 2 minutes.</p>
+    `,
+  });
 };
 
-/**
- * Send reset PIN email
- */
+// RESET PIN EMAIL
 exports.sendResetPasswordEmail = async (email, url) => {
-  const subject = "Reset Your 4ON4 Account PIN";
-  const text = `Reset your PIN using this link: ${url}`;
-  const html = `
-    <p>Reset your PIN using this link:</p>
-    <p><a href="${url}" target="_blank">${url}</a></p>
-    <p>If you did not request this, you can ignore this email.</p>
-  `;
-
-  return sendResendEmail({ to: email, subject, html, text });
+  return sendResendEmail({
+    to: email,
+    subject: "Reset Your 4ON4 Account PIN",
+    text: `Reset your PIN using: ${url}`,
+    html: `
+      <p>Reset your PIN:</p>
+      <a href="${url}" target="_blank">${url}</a>
+    `,
+  });
 };
