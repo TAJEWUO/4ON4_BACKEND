@@ -1,69 +1,56 @@
 // src/utils/emailUtils.js
-const axios = require("axios");
+const nodemailer = require("nodemailer");
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const MAIL_FROM = process.env.MAIL_FROM || "support@4on4.world";
-const FROM_NAME = process.env.FROM_NAME || "4ON4";
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
 
-if (!RESEND_API_KEY) {
-  console.warn("[emailUtils] RESEND_API_KEY missing — emails cannot send.");
-}
-
-// INTERNAL helper
-async function sendResendEmail({ to, subject, html, text }) {
-  if (!RESEND_API_KEY) return false;
-
+// Send OTP for registration
+exports.sendVerificationEmail = async (email, code) => {
   try {
-    const from = `${FROM_NAME} <${MAIL_FROM}>`;
+    await transporter.sendMail({
+      from: `"4ON4" <${process.env.MAIL_FROM}>`,
+      to: email,
+      subject: "4ON4 Email Verification Code",
+      text: `Your verification code is: ${code}`,
+      html: `
+        <p>Your verification code is:</p>
+        <p style="font-size: 22px; font-weight: bold; letter-spacing: 4px;">
+          ${code}
+        </p>
+        <p>This OTP expires in 2 minutes.</p>
+      `,
+    });
 
-    const response = await axios.post(
-      "https://api.resend.com/emails",
-      {
-        from,
-        to,
-        subject,
-        html,
-        text,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${RESEND_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 15000,
-      }
-    );
-
-    return Boolean(response.data?.id);
+    return true;
   } catch (err) {
-    console.error("Email send ERROR:", err.response?.data || err.message);
+    console.error("Email send ERROR:", err);
     return false;
   }
-}
-
-// REGISTER OTP EMAIL
-exports.sendVerificationEmail = async (email, code) => {
-  return sendResendEmail({
-    to: email,
-    subject: "4ON4 Email Verification Code",
-    text: `Your verification code is: ${code}`,
-    html: `
-      <p>Your verification code is:</p>
-      <h2>${code}</h2>
-      <p>Expires in 2 minutes.</p>
-    `,
-  });
 };
 
-// RESET PIN EMAIL
+// Send reset link
 exports.sendResetPasswordEmail = async (email, url) => {
-  return sendResendEmail({
-    to: email,
-    subject: "Reset Your 4ON4 Account PIN",
-    text: `Reset your PIN using: ${url}`,
-    html: `
-      <p>Reset your PIN:</p>
-      <a href="${url}" target="_blank">${url}</a>
-    `,
-  });
+  try {
+    await transporter.sendMail({
+      from: `"4ON4" <${process.env.MAIL_FROM}>`,
+      to: email,
+      subject: "Reset Your 4ON4 Account PIN",
+      text: `Reset your PIN using this link: ${url}`,
+      html: `
+        <p>Reset your PIN using this link:</p>
+        <p><a href="${url}" target="_blank">${url}</a></p>
+        <p>If you did not request this, you can ignore this message.</p>
+      `,
+    });
+
+    return true;
+  } catch (err) {
+    console.error("Email send ERROR:", err);
+    return false;
+  }
 };
