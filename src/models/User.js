@@ -1,20 +1,48 @@
 const mongoose = require("mongoose");
 
-const userSchema = new mongoose.Schema(
+const UserSchema = new mongoose.Schema(
   {
-    email: { type: String, required: true, unique: true },
+    // ────────────────────────────────
+    // EMAIL (optional now)
+    // ────────────────────────────────
+    email: {
+      type: String,
+      required: false, // ← FIXED: email verification removed
+      trim: true,
+      lowercase: true,
+    },
 
-    // New phone structure
-    phoneFull: { type: String, unique: true, sparse: true }, 
-    phoneTail: { type: String, index: true }, // last 8 digits for login matching
+    // ────────────────────────────────
+    // PHONE (required)
+    // ────────────────────────────────
+    phoneFull: {
+      type: String,
+      required: true, // e.g. "+254712345678"
+    },
 
-    password: String, // hashed 4-digit PIN
+    phoneTail: {
+      type: String,
+      required: true, // last 9 digits for quick lookup
+      index: true,
+      unique: true,
+    },
 
-    emailVerified: { type: Boolean, default: false },
+    // ────────────────────────────────
+    // AUTH
+    // ────────────────────────────────
+    password: {
+      type: String, // hashed PIN
+      required: true,
+    },
+
+    // these remain to support legacy fields safely
+    emailVerified: {
+      type: Boolean,
+      default: true,
+    },
 
     emailVerificationCode: String,
     emailVerificationCodeExpires: Date,
-
     emailVerificationToken: String,
     emailVerificationExpires: Date,
 
@@ -24,4 +52,4 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model("User", userSchema);
+module.exports = mongoose.model("User", UserSchema);
