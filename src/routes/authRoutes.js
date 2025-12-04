@@ -10,19 +10,19 @@ const {
   resetPinComplete,
 } = require("../controllers/authController");
 
-// 1) Start Twilio verification (register or reset)
+// 1) Start Twilio SMS verification
 router.post("/verify/start", startVerify);
 
-// 2) Check Twilio verification code
+// 2) Check OTP code
 router.post("/verify/check", checkVerify);
 
-// 3) Finish registration (set PIN)
+// 3) Complete registration (set PIN)
 router.post("/register-complete", registerComplete);
 
-// 4) Login with phone + PIN
+// 4) Login
 router.post("/login", loginUser);
 
-// 5) Finish reset PIN
+// 5) Complete PIN reset after OTP
 router.post("/reset-pin-complete", resetPinComplete);
 
 module.exports = router;
