@@ -193,69 +193,104 @@ exports.checkVerify = async (req, res) => {
 };
 
 /* ======================================================
-   3) COMPLETE REGISTRATION
+   3) COMPLETE REGISTRATION (SET PIN)
    POST /api/auth/register-complete
+   body: { token, pin, confirmPin }
 ====================================================== */
 exports.registerComplete = async (req, res) => {
   try {
     const { token, pin, confirmPin } = req.body;
 
-    if (!token || !pin || !confirmPin)
+    // ----------- BASIC VALIDATION -----------
+    if (!token || !pin || !confirmPin) {
       return res.status(400).json({
         success: false,
-        message: "Token and PINs required",
+        message: "Token and PINs are required",
       });
+    }
 
-    if (!pinRegex.test(pin))
+    if (!pinRegex.test(pin)) {
       return res.status(400).json({
         success: false,
         message: "PIN must be 4 digits",
       });
+    }
 
-    if (pin !== confirmPin)
+    if (pin !== confirmPin) {
       return res.status(400).json({
         success: false,
         message: "PINs do not match",
       });
+    }
 
-    // Decode token from checkVerify
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-
-    const existing = await User.findOne({ phoneTail: payload.phoneTail });
-    if (existing) {
+    // ----------- VERIFY TOKEN -----------
+    let payload;
+    try {
+      payload = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      console.error("registerComplete invalid token:", err);
       return res.status(400).json({
         success: false,
-        message: "Phone already registered",
+        message: "Invalid or expired registration token",
       });
     }
 
-    const hashed = await bcrypt.hash(pin, 10);
+    if (!payload || payload.purpose !== "register") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid registration context",
+      });
+    }
 
-    const user = new User({
-      phoneFull: payload.phone,
-      phoneTail: payload.phoneTail,
-      password: hashed,
+    const phoneE164 = payload.phone;
+    const phoneTail = payload.phoneTail;
+
+    if (!phoneE164 || !phoneTail) {
+      return res.status(500).json({
+        success: false,
+        message: "Missing phone data in token",
+      });
+    }
+
+    // ----------- CHECK IF USER ALREADY EXISTS -----------
+    const existing = await User.findOne({ phoneTail });
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number already registered",
+      });
+    }
+
+    // ----------- CREATE USER -----------
+    const hashedPin = await bcrypt.hash(pin, 10);
+
+    const newUser = new User({
+      phoneFull: phoneE164,
+      phoneTail,
+      password: hashedPin,
+      emailVerified: true,
     });
 
-    await user.save();
+    await newUser.save();
 
-    const { accessToken, refreshToken } = makeTokens(user._id);
+    const { accessToken, refreshToken } = makeTokens(newUser._id);
 
     return res.json({
       success: true,
-      message: "Account created",
+      message: "Account created successfully",
       user: {
-        id: user._id,
-        phone: user.phoneFull,
+        id: newUser._id,
+        phone: newUser.phoneFull,
       },
       accessToken,
       refreshToken,
     });
+
   } catch (err) {
     console.error("registerComplete error:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: "Server error during registration",
     });
   }
 };
