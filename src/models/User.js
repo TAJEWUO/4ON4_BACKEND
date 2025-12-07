@@ -1,55 +1,32 @@
+// src/models/User.js
 const mongoose = require("mongoose");
 
-const UserSchema = new mongoose.Schema(
+const userSchema = new mongoose.Schema(
   {
-    // ────────────────────────────────
-    // EMAIL (optional now)
-    // ────────────────────────────────
-    email: {
-      type: String,
-      required: false, // ← FIXED: email verification removed
-      trim: true,
-      lowercase: true,
-    },
+    // Full phone in E.164 format, e.g. +2547xxxxxxx
+    phoneFull: { type: String, required: true, unique: true, trim: true },
 
-    // ────────────────────────────────
-    // PHONE (required)
-    // ────────────────────────────────
-    phoneFull: {
-      type: String,
-      required: true, // e.g. "+254712345678"
-    },
+    // Last 9 digits (tail) for quick lookups and uniqueness
+    phoneTail: { type: String, required: true, index: true },
 
-    phoneTail: {
-      type: String,
-      required: true, // last 9 digits for quick lookup
-      index: true,
-      unique: true,
-    },
+    // Hashed PIN/password (bcrypt)
+    password: { type: String, required: true },
 
-    // ────────────────────────────────
-    // AUTH
-    // ────────────────────────────────
-    password: {
-      type: String, // hashed PIN
-      required: true,
-    },
+    // Optional profile reference (if you want to keep profile in a separate collection)
+    profileId: { type: mongoose.Schema.Types.ObjectId, ref: "UserProfile", default: null },
 
-    // these remain to support legacy fields safely
-    emailVerified: {
-      type: Boolean,
-      default: true,
-    },
+    // Role, flags, metadata
+    role: { type: String, default: "driver" },
+    isActive: { type: Boolean, default: true },
 
-    emailVerificationCode: String,
-    emailVerificationCodeExpires: Date,
-    emailVerificationToken: String,
-    emailVerificationExpires: Date,
-
-    resetPasswordToken: String,
-    resetPasswordExpires: Date,
+    // Refresh tokens or token metadata may be kept elsewhere
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model("User", UserSchema);
+// simple index on phoneTail for faster lookup
+userSchema.index({ phoneTail: 1 }, { unique: true });
+
+module.exports = mongoose.model("User", userSchema);
