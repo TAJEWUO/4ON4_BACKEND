@@ -6,6 +6,9 @@ const connectDB = require("./config/db");
 
 const authRoutes = require("./routes/authRoutes");
 
+const profileRoutes = require("./routes/profileRoutes");
+const vehicleRoutes = require("./routes/vehicleRoutes");
+
 const app = express();
 
 // Middleware
@@ -26,3 +29,8 @@ app.get("/", (req, res) => {
 // Start server
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => console.log(`🚀 Backend running on port ${PORT}`));
+
+
+// use '/api/profile' and '/api/vehicles'
+app.use("/api/profile", profileRoutes);
+app.use("/api/vehicles", vehicleRoutes);

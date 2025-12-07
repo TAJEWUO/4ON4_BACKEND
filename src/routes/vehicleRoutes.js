@@ -1,37 +1,34 @@
+// src/routes/vehicleRoutes.js
 const express = require("express");
 const router = express.Router();
-const upload = require("../middleware/upload");
+const vehicleController = require("../controllers/vehicleController");
 const auth = require("../middleware/auth");
+const { uploadVehicle } = require("../middleware/upload");
 
-const {
-  addVehicle,
-  getMyVehicles,
-  getPublicVehicles,
-  addVehicleFromBodyUserId,
-  getVehiclesByUserId,
-  deleteVehicle,
-  updateVehicle,
-} = require("../controllers/vehicleController");
+// upload vehicle: images (up to 3) under field 'images', documents under 'documents'
+router.post(
+  "/upload",
+  auth,
+  uploadVehicle.fields([
+    { name: "images", maxCount: 3 },
+    { name: "documents", maxCount: 10 },
+  ]),
+  vehicleController.uploadVehicle
+);
 
-// driver adds vehicle (max 3 images) with JWT auth
-router.post("/add", auth, upload.array("images", 3), addVehicle);
+router.get("/:userId", auth, vehicleController.getVehiclesByUser);
+router.get("/single/:vehicleId", auth, vehicleController.getVehicleById);
 
-// driver sees own vehicles (JWT auth)
-router.get("/my", auth, getMyVehicles);
+router.put(
+  "/:vehicleId",
+  auth,
+  uploadVehicle.fields([
+    { name: "images", maxCount: 3 },
+    { name: "documents", maxCount: 10 },
+  ]),
+  vehicleController.updateVehicle
+);
 
-// public view for 4ON4 PUBLIC
-router.get("/public", getPublicVehicles);
-
-// DEV-MODE: Upload vehicle without JWT (frontend uses this)
-router.post("/upload", upload.array("images", 3), addVehicleFromBodyUserId);
-
-// DEV-MODE: Get vehicles by userId (frontend uses this)
-router.get("/:userId", getVehiclesByUserId);
-
-// DELETE vehicle by ID
-router.delete("/:vehicleId", deleteVehicle);
-
-// UPDATE vehicle by ID (optional new images)
-router.put("/:vehicleId", upload.array("images", 3), updateVehicle);
+router.delete("/:vehicleId", auth, vehicleController.deleteVehicle);
 
 module.exports = router;

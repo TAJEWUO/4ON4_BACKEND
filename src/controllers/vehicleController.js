@@ -1,206 +1,221 @@
+// src/controllers/vehicleController.js
 const Vehicle = require("../models/Vehicle");
-const User = require("../models/User");
+const { ok, error } = require("../utils/response");
+const { deleteFile } = require("../services/fileService");
 
-/**
- * Clean uploaded file paths so they work on Windows, Linux and Next.js
- */
-function cleanFilePath(path) {
-  return path
-    .replace(/\\/g, "/")      // Fix Windows backslashes
-    .replace(/^src\//, "");    // Remove leading src/ if exists
-}
-
-/**
- * ADD VEHICLE (JWT REQUIRED)
- * Uploads up to 3 images
- */
-exports.addVehicle = async (req, res) => {
+// Upload vehicle (FormData). Files: images (max 3), documents (pdfs)
+exports.uploadVehicle = async (req, res) => {
   try {
-    const { plateNumber, capacity, windowType, model } = req.body;
+    const userId = req.user && req.user.id;
+    if (!userId) return error(res, "Unauthorized", 401);
 
-    if (!plateNumber || !capacity || !windowType) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields",
-      });
+    const {
+      plateNumber,
+      model,
+      seatCount,
+      tripType,
+      color,
+      windowType,
+      sunroof,
+      fourByFour,
+      additionalFeatures,
+    } = req.body;
+
+    if (!plateNumber) return error(res, "plateNumber required", 400);
+
+    // parse boolean fields
+    const sunroofBool = sunroof === "true" || sunroof === true || sunroof === "1";
+    const fourByFourBool = fourByFour === "true" || fourByFour === true || fourByFour === "1";
+
+    // parse additional features CSV or JSON
+    let features = [];
+    if (additionalFeatures) {
+      try {
+        features = typeof additionalFeatures === "string" && additionalFeatures.startsWith("[") ? JSON.parse(additionalFeatures) : additionalFeatures.split ? additionalFeatures.split(",").map(s => s.trim()).filter(Boolean) : [];
+      } catch (e) {
+        features = (additionalFeatures || "").split(",").map(s => s.trim()).filter(Boolean);
+      }
     }
 
-    // Clean uploaded image paths
-    const images = (req.files || []).map((file) => cleanFilePath(file.path));
+    // Gather files
+    const images = [];
+    const docs = [];
 
-    const vehicle = await Vehicle.create({
-      driverId: req.user.id,
-      plateNumber,
-      capacity,
-      windowType,
-      model,
-      images,
-    });
-
-    return res.json({ success: true, vehicle });
-  } catch (err) {
-    console.error("addVehicle error:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
-  }
-};
-
-/**
- * ADD VEHICLE — DEV MODE (NO JWT)
- */
-exports.addVehicleFromBodyUserId = async (req, res) => {
-  try {
-    const { userId, plateNumber, capacity, windowType, model } = req.body;
-
-    if (!userId || !plateNumber || !capacity || !windowType) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields",
-      });
+    if (req.files) {
+      // images field
+      if (req.files.images) {
+        for (const f of req.files.images.slice(0, 3)) {
+          images.push({ path: `uploads/vehicles/${f.filename}` });
+        }
+      }
+      // documents field
+      if (req.files.documents) {
+        for (const f of req.files.documents) {
+          docs.push({ path: `uploads/vehicles/${f.filename}` });
+        }
+      }
     }
 
-    // Clean uploaded image paths
-    const images = (req.files || []).map((file) => cleanFilePath(file.path));
-
-    const vehicle = await Vehicle.create({
-      driverId: userId,
+    const veh = new Vehicle({
+      userId,
       plateNumber,
-      capacity,
-      windowType,
-      model,
+      model: model || "",
+      seatCount: seatCount ? Number(seatCount) : undefined,
+      tripType: tripType || "",
+      color: color || "",
+      windowType: windowType || "glass",
+      sunroof: !!sunroofBool,
+      fourByFour: !!fourByFourBool,
+      additionalFeatures: features,
       images,
+      documents: docs,
     });
 
-    return res.json({ success: true, vehicle });
+    await veh.save();
+    return ok(res, { vehicle: veh });
   } catch (err) {
-    console.error("addVehicleFromBodyUserId error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    console.error("uploadVehicle:", err);
+    return error(res, "Server error", 500);
   }
 };
 
-/**
- * GET VEHICLES FOR LOGGED-IN DRIVER
- */
-exports.getMyVehicles = async (req, res) => {
-  try {
-    const vehicles = await Vehicle.find({ driverId: req.user.id }).sort({
-      createdAt: -1,
-    });
-
-    return res.json({ success: true, vehicles });
-  } catch (err) {
-    console.error("getMyVehicles error:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
-  }
-};
-
-/**
- * GET VEHICLES BY USER ID
- */
-exports.getVehiclesByUserId = async (req, res) => {
+exports.getVehiclesByUser = async (req, res) => {
   try {
     const { userId } = req.params;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing userId param",
-      });
-    }
-
-    const vehicles = await Vehicle.find({ driverId: userId }).sort({
-      createdAt: -1,
+    const vehicles = await Vehicle.find({ userId }).lean();
+    // convert file refs to path strings for frontend
+    const sanitized = vehicles.map(v => {
+      v.images = (v.images || []).map(i => i.path || i);
+      v.documents = (v.documents || []).map(d => d.path || d);
+      return v;
     });
-
-    return res.json({ success: true, vehicles });
+    return ok(res, { vehicles: sanitized });
   } catch (err) {
-    console.error("getVehiclesByUserId error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    console.error("getVehiclesByUser:", err);
+    return error(res, "Server error", 500);
   }
 };
 
-/**
- * PUBLIC VEHICLES (for 4ON4_WORLD)
- */
-exports.getPublicVehicles = async (req, res) => {
-  try {
-    const vehicles = await Vehicle.find()
-      .sort({ createdAt: -1 })
-      .populate("driverId", [
-        "firstName",
-        "citizenship",
-        "level",
-        "languages",
-        "profileImage",
-      ]);
-
-    return res.json({ success: true, vehicles });
-  } catch (err) {
-    console.error("getPublicVehicles error:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
-  }
-};
-
-/**
- * DELETE VEHICLE
- */
-exports.deleteVehicle = async (req, res) => {
+exports.getVehicleById = async (req, res) => {
   try {
     const { vehicleId } = req.params;
-
-    const found = await Vehicle.findById(vehicleId);
-    if (!found) {
-      return res.status(404).json({
-        success: false,
-        message: "Vehicle not found",
-      });
-    }
-
-    await Vehicle.findByIdAndDelete(vehicleId);
-
-    return res.json({ success: true, message: "Vehicle deleted" });
+    const v = await Vehicle.findById(vehicleId).lean();
+    if (!v) return error(res, "Vehicle not found", 404);
+    v.images = (v.images || []).map(i => i.path || i);
+    v.documents = (v.documents || []).map(d => d.path || d);
+    return ok(res, { vehicle: v });
   } catch (err) {
-    console.error("deleteVehicle error:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("getVehicleById:", err);
+    return error(res, "Server error", 500);
   }
 };
 
-/**
- * UPDATE VEHICLE + UPDATE IMAGES
- */
 exports.updateVehicle = async (req, res) => {
   try {
     const { vehicleId } = req.params;
-    const { plateNumber, capacity, windowType, model } = req.body;
+    const userId = req.user && req.user.id;
+    const v = await Vehicle.findById(vehicleId);
+    if (!v) return error(res, "Vehicle not found", 404);
+    if (!v.userId.equals(userId)) return error(res, "Unauthorized", 403);
 
-    const vehicle = await Vehicle.findById(vehicleId);
-    if (!vehicle) {
-      return res.status(404).json({
-        success: false,
-        message: "Vehicle not found",
+    const {
+      plateNumber,
+      model,
+      seatCount,
+      tripType,
+      color,
+      windowType,
+      sunroof,
+      fourByFour,
+      additionalFeatures,
+      removeImagePaths, // optional comma separated list of image paths to remove
+      removeDocumentPaths,
+    } = req.body;
+
+    if (plateNumber !== undefined) v.plateNumber = plateNumber;
+    if (model !== undefined) v.model = model;
+    if (seatCount !== undefined && seatCount !== "") v.seatCount = Number(seatCount);
+    if (tripType !== undefined) v.tripType = tripType;
+    if (color !== undefined) v.color = color;
+    if (windowType !== undefined) v.windowType = windowType;
+    if (sunroof !== undefined) v.sunroof = sunroof === "true" || sunroof === true;
+    if (fourByFour !== undefined) v.fourByFour = fourByFour === "true" || fourByFour === true;
+
+    if (additionalFeatures) {
+      try {
+        v.additionalFeatures = typeof additionalFeatures === "string" && additionalFeatures.startsWith("[") ? JSON.parse(additionalFeatures) : additionalFeatures.split ? additionalFeatures.split(",").map(s => s.trim()).filter(Boolean) : [];
+      } catch (e) {
+        v.additionalFeatures = (additionalFeatures || "").split(",").map(s => s.trim()).filter(Boolean);
+      }
+    }
+
+    // Remove images if requested
+    if (removeImagePaths) {
+      const removeArr = removeImagePaths.split(",").map(s => s.trim()).filter(Boolean);
+      v.images = (v.images || []).filter(img => {
+        if (removeArr.includes(img.path || img)) {
+          deleteFile(img.path || img);
+          return false;
+        }
+        return true;
       });
     }
 
-    if (plateNumber) vehicle.plateNumber = plateNumber;
-    if (capacity) vehicle.capacity = capacity;
-    if (windowType) vehicle.windowType = windowType;
-    if (model) vehicle.model = model;
-
-    // Replace old images if new ones uploaded
-    if (req.files && req.files.length > 0) {
-      vehicle.images = req.files.map((file) => cleanFilePath(file.path));
+    // Remove docs if requested
+    if (removeDocumentPaths) {
+      const remDocs = removeDocumentPaths.split(",").map(s => s.trim()).filter(Boolean);
+      v.documents = (v.documents || []).filter(doc => {
+        if (remDocs.includes(doc.path || doc)) {
+          deleteFile(doc.path || doc);
+          return false;
+        }
+        return true;
+      });
     }
 
-    await vehicle.save();
+    // Add new files if present
+    if (req.files) {
+      if (req.files.images) {
+        for (const f of req.files.images.slice(0, 3)) {
+          v.images.push({ path: `uploads/vehicles/${f.filename}` });
+        }
+      }
+      if (req.files.documents) {
+        for (const f of req.files.documents) {
+          v.documents.push({ path: `uploads/vehicles/${f.filename}` });
+        }
+      }
+    }
 
-    return res.json({ success: true, vehicle });
+    v.updatedAt = new Date();
+    await v.save();
+    return ok(res, { vehicle: v });
   } catch (err) {
-    console.error("updateVehicle error:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("updateVehicle:", err);
+    return error(res, "Server error", 500);
+  }
+};
+
+exports.deleteVehicle = async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+    const userId = req.user && req.user.id;
+    const v = await Vehicle.findById(vehicleId);
+    if (!v) return error(res, "Vehicle not found", 404);
+    if (!v.userId.equals(userId)) return error(res, "Unauthorized", 403);
+
+    // delete files
+    for (const img of v.images || []) {
+      try { deleteFile(img.path || img); } catch (e) {}
+    }
+    for (const d of v.documents || []) {
+      try { deleteFile(d.path || d); } catch (e) {}
+    }
+
+    await Vehicle.deleteOne({ _id: vehicleId });
+    return ok(res, { message: "Vehicle deleted" });
+  } catch (err) {
+    console.error("deleteVehicle:", err);
+    return error(res, "Server error", 500);
   }
 };
