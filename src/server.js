@@ -1,66 +1,28 @@
 // src/server.js
-
-// MUST be first
 require("dotenv").config();
-
 const express = require("express");
 const cors = require("cors");
-const connectDB = require("./config/db");
-const path = require("path");
+const connectDB = require("./config/db"); 
 
 const authRoutes = require("./routes/authRoutes");
-const userRoutes = require("./routes/userRoutes");
-const vehicleRoutes = require("./routes/vehicleRoutes");
-const publicRoutes = require("./routes/publicRoutes");
 
 const app = express();
 
-// ===============================
-// CONNECT DATABASE (after dotenv)
-// ===============================
+// Middleware
+app.use(cors());
+app.use(express.json({ limit: "5mb" }));
+
+// Connect DB
 connectDB();
 
-// Body parser
-app.use(express.json());
-
-// ===============================
-// CORS CONFIGURATION (FINAL)
-// ===============================
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-// Allow preflight
-app.options("*", cors());
-
-// ===============================
-// STATIC FILE SERVING (UPLOADS)
-// ===============================
-const uploadsPath = path.join(__dirname, "../uploads");
-console.log("Serving uploads from:", uploadsPath);
-
-app.use("/uploads", express.static(uploadsPath));
-
-// ===============================
 // ROUTES
-// ===============================
 app.use("/api/auth", authRoutes);
-app.use("/api/user", userRoutes);
-app.use("/api/vehicles", vehicleRoutes);
-app.use("/api/public", publicRoutes);
 
-// Health Check
+// Root check
 app.get("/", (req, res) => {
-  res.json({ status: "Backend is running" });
+  res.json({ success: true, message: "4ON4 backend running" });
 });
 
-// ===============================
-// START SERVER
-// ===============================
+// Start server
 const PORT = process.env.PORT || 3002;
-app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
-
+app.listen(PORT, () => console.log(`🚀 Backend running on port ${PORT}`));
