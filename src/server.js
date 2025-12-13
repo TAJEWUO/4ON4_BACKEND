@@ -12,7 +12,17 @@ const vehicleRoutes = require("./routes/vehicleRoutes");
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: [
+      "http://localhost:3000",
+      "https://4on4.world",
+      "https://4on4.site",
+      /\.vercel\.app$/,
+    ],
+    credentials: true,
+  }
+
+));
 app.use(express.json({ limit: "5mb" }));
 
 // Connect DB
