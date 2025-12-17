@@ -13,14 +13,18 @@ const userProfileSchema = new mongoose.Schema(
     // Basic info
     firstName: { type: String, default: "" },
     lastName: { type: String, default: "" },
+    otherName: { type: String, default: "" },
+    email: { type: String, default: "" },
     phoneNumber: { type: String, default: "" }, // usually from auth
     age: { type: Number },
     languages: [{ type: String }], // multiple languages allowed
-    level: { type: String, enum: ["gold", "silver", "bronze", ""], default: "" },
+    level: { type: String, enum: ["GOLD", "SILVER", "BRONZE", ""], default: "" },
     yearsOfExperience: { type: Number },
     levelOfEducation: { type: String, default: "" },
     freelancerOrEmployed: { type: String, enum: ["freelancer", "employed", ""] },
     carOwnerOrDriver: [{ type: String, enum: ["owner", "driver"] }], // can select both
+    drivingLicenseNumber: { type: String, default: "" },
+
 
     // Identifiers & documents
     idNumber: { type: String, default: "" },
