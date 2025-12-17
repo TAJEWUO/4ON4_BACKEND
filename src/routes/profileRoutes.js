@@ -1,13 +1,13 @@
 const express = require("express");
 const router = express.Router();
-const profileController = require("../controllers/profileController");
 const auth = require("../middleware/auth");
 const { uploadUser } = require("../middleware/upload");
+const profileController = require("../controllers/profileController");
 
 // GET own profile
 router.get("/me", auth, profileController.getMyProfile);
 
-// CREATE profile (first time only)
+// CREATE profile (first time)
 router.post(
   "/",
   auth,
@@ -33,7 +33,7 @@ router.put(
   profileController.updateProfile
 );
 
-// UPDATE profile picture only
+// UPDATE PROFILE AVATAR ONLY
 router.post(
   "/me/avatar",
   auth,
