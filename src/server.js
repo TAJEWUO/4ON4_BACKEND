@@ -46,6 +46,10 @@ app.get("/", (req, res) => {
   res.json({ success: true, message: "4ON4 backend running" });
 });
 
+app.get("/api/profile/_health", (req, res) => {
+  res.json({ ok: true, route: "profile health check" });
+});
+
 /* =======================
    START SERVER (LAST)
 ======================= */
