@@ -9,51 +9,33 @@ const vehicleRoutes = require("./routes/vehicleRoutes");
 
 const app = express();
 
-/* =======================
-   CORS (FIXED & VALID)
-======================= */
-app.use(
-  cors({
-    origin: [
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "https://4on4.world",
-      "https://www.4on4.world",
-      "https://4on4.site",
-      "https://www.4on4.site",
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+app.use(cors({
+  origin: [
+    "http://localhost:3000",
+    "https://4on4.world",
+    "https://4on4.site",
+    /\.vercel\.app$/,
+  ],
+  credentials: true,
+}));
 
 app.use(express.json({ limit: "5mb" }));
 
-/* =======================
-   DB
-======================= */
+// Connect DB
 connectDB();
 
-/* =======================
-   ROUTES (MUST BE BEFORE listen)
-======================= */
+// ROUTES (ALL BEFORE listen)
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 
+// Root check
 app.get("/", (req, res) => {
   res.json({ success: true, message: "4ON4 backend running" });
 });
 
-app.get("/api/profile/_health", (req, res) => {
-  res.json({ ok: true, route: "profile health check" });
+// Start server LAST
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log(`🚀 Backend running on port ${PORT}`);
 });
-
-/* =======================
-   START SERVER (LAST)
-======================= */
-const PORT = process.env.PORT || 3002;
-app.listen(PORT, () =>
-  console.log(`🚀 Backend running on port ${PORT}`)
-);
