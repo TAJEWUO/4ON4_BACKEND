@@ -37,6 +37,16 @@ const makeTokens = (userId) => {
   return { accessToken, refreshToken };
 };
 
+const setRefreshTokenCookie = (res, refreshToken) => {
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 14 * 24 * 60 * 60 * 1000,
+  });
+};
+
 exports.startVerify = async (req, res) => {
   try {
     const { phone, mode } = req.body;
@@ -103,13 +113,7 @@ exports.registerComplete = async (req, res) => {
     const { accessToken, refreshToken } = makeTokens(user._id);
 
     // Set refresh token as httpOnly cookie
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/api/auth/refresh',
-      maxAge: 14 * 24 * 60 * 60 * 1000,
-    });
+    setRefreshTokenCookie(res, refreshToken);
 
     return res.json({ success: true, message: "Account created", user: { id: user._id, phone: user.phoneFull }, accessToken });
   } catch (err) {
@@ -132,13 +136,7 @@ exports.loginUser = async (req, res) => {
     const { accessToken, refreshToken } = makeTokens(user._id);
     
     // Set refresh token as httpOnly cookie
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/api/auth/refresh',
-      maxAge: 14 * 24 * 60 * 60 * 1000,
-    });
+    setRefreshTokenCookie(res, refreshToken);
 
     return res.json({ success: true, message: "Login successful", user: { id: user._id, phone: user.phoneFull }, accessToken });
   } catch (err) {

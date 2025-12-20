@@ -11,7 +11,7 @@ The following environment variables are required for the application to run:
 - `JWT_SECRET` - Secret key used to sign access tokens (2h expiry)
 - `JWT_REFRESH_SECRET` - Secret key used to sign refresh tokens (14d expiry). If not provided, falls back to `JWT_SECRET`
 - `NODE_ENV` - Environment mode (`development` or `production`). In production, cookies are marked as secure
-- `FRONTEND_ORIGIN` - Frontend origin URL for CORS configuration (e.g., `http://localhost:3000` or your production domain)
+- `FRONTEND_ORIGIN` - Frontend origin URL for CORS configuration (e.g., `http://localhost:3000` or your production domain). The server also allows `http://localhost:3000`, `http://192.168.0.113:3000` (local network), `https://4on4.world`, `https://4on4.site`, and any Vercel deployment domains.
 - `MONGO_URI` - MongoDB connection string
 - `PORT` - Server port (defaults to 10000)
 
@@ -173,7 +173,7 @@ curl -X GET http://localhost:10000/api/profile \
 - Access tokens have a short 2-hour expiry
 - Refresh tokens have a 14-day expiry
 - CORS is configured to only allow specific origins with credentials
-- The refresh endpoint path is restricted: `/api/auth/refresh`
+- The refresh cookie is accessible on all paths for flexibility
 
 ## Migration Support
 
