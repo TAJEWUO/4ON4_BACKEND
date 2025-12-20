@@ -1,4 +1,4 @@
-// src/controllers/authController.js
+11// src/controllers/authController.js
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
@@ -36,6 +36,16 @@ const makeTokens = (userId) => {
   const refreshToken = jwt.sign({ id: userId }, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, { expiresIn: "14d" });
   return { accessToken, refreshToken };
 };
+
+function setRefreshCookie(res, refreshToken) {
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/api/auth/refresh",
+    maxAge: 14 * 24 * 60 * 60 * 1000, // 14 days
+  });
+}
 
 exports.startVerify = async (req, res) => {
   try {
@@ -102,7 +112,11 @@ exports.registerComplete = async (req, res) => {
 
     const { accessToken, refreshToken } = makeTokens(user._id);
 
-    return res.json({ success: true, message: "Account created", user: { id: user._id, phone: user.phoneFull }, accessToken, refreshToken });
+    // Set httpOnly refresh cookie (secure in production)
+    setRefreshCookie(res, refreshToken);
+
+    // Return access token (refresh is in cookie)
+    return res.json({ success: true, message: "Account created", user: { id: user._id, phone: user.phoneFull }, accessToken });
   } catch (err) {
     console.error("registerComplete error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -120,8 +134,12 @@ exports.loginUser = async (req, res) => {
     const match = await bcrypt.compare(pin, user.password);
     if (!match) return res.status(400).json({ success: false, message: "Incorrect phone or PIN" });
 
-    const tokens = makeTokens(user._id);
-    return res.json({ success: true, message: "Login successful", user: { id: user._id, phone: user.phoneFull }, ...tokens });
+    const { accessToken, refreshToken } = makeTokens(user._id);
+
+    // Set httpOnly refresh cookie
+    setRefreshCookie(res, refreshToken);
+
+    return res.json({ success: true, message: "Login successful", user: { id: user._id, phone: user.phoneFull }, accessToken });
   } catch (err) {
     console.error("loginUser error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -146,5 +164,35 @@ exports.resetPinComplete = async (req, res) => {
   } catch (err) {
     console.error("resetPinComplete error:", err);
     return res.status(500).json({ success: false, message: "Failed to reset PIN" });
+  }
+};
+
+exports.refreshToken = async (req, res) => {
+  try {
+    // cookie preferred; fallback to body for migration
+    const cookieToken = req.cookies?.refreshToken;
+    const bodyToken = req.body?.refreshToken;
+    const token = cookieToken || bodyToken;
+
+    if (!token) {
+      return res.status(400).json({ success: false, message: "refreshToken required" });
+    }
+
+    const secret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
+    let payload;
+    try {
+      payload = jwt.verify(token, secret);
+    } catch (err) {
+      return res.status(401).json({ success: false, message: "Invalid refresh token" });
+    }
+
+    const userId = payload.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Invalid token payload" });
+
+    const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "2h" });
+    return res.json({ success: true, accessToken });
+  } catch (err) {
+    console.error("refreshToken error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 };
