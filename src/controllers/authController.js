@@ -31,10 +31,27 @@ function getPhoneTailFromE164(e164) {
 
 const pinRegex = /^\d{4}$/;
 
+// Cookie configuration for refresh tokens
+const REFRESH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  path: '/api/auth/refresh',
+  maxAge: 14 * 24 * 60 * 60 * 1000, // 14 days
+};
+
+// Get JWT refresh secret with fallback
+const getRefreshSecret = () => process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
+
 const makeTokens = (userId) => {
   const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "2h" });
-  const refreshToken = jwt.sign({ id: userId }, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, { expiresIn: "14d" });
+  const refreshToken = jwt.sign({ id: userId }, getRefreshSecret(), { expiresIn: "14d" });
   return { accessToken, refreshToken };
+};
+
+// Helper to set refresh token cookie
+const setRefreshTokenCookie = (res, refreshToken) => {
+  res.cookie('refreshToken', refreshToken, REFRESH_COOKIE_OPTIONS);
 };
 
 exports.startVerify = async (req, res) => {
@@ -103,13 +120,7 @@ exports.registerComplete = async (req, res) => {
     const { accessToken, refreshToken } = makeTokens(user._id);
 
     // Set refresh token as httpOnly cookie
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/api/auth/refresh',
-      maxAge: 14 * 24 * 60 * 60 * 1000, // 14 days
-    });
+    setRefreshTokenCookie(res, refreshToken);
 
     return res.json({ 
       success: true, 
@@ -137,13 +148,7 @@ exports.loginUser = async (req, res) => {
     const { accessToken, refreshToken } = makeTokens(user._id);
     
     // Set refresh token as httpOnly cookie
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/api/auth/refresh',
-      maxAge: 14 * 24 * 60 * 60 * 1000, // 14 days
-    });
+    setRefreshTokenCookie(res, refreshToken);
     
     return res.json({ 
       success: true, 
@@ -188,8 +193,7 @@ exports.refreshToken = async (req, res) => {
     }
 
     // Verify the refresh token
-    const secret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
-    const decoded = jwt.verify(refreshToken, secret);
+    const decoded = jwt.verify(refreshToken, getRefreshSecret());
     
     // Issue a new access token
     const accessToken = jwt.sign({ id: decoded.id }, process.env.JWT_SECRET, { expiresIn: "2h" });
