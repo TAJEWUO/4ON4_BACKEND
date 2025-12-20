@@ -8,6 +8,7 @@ const {
   registerComplete,
   loginUser,
   resetPinComplete,
+  refreshToken,
 } = require("../controllers/authController");
 
 // Twilio verification start
@@ -24,5 +25,8 @@ router.post("/login", loginUser);
 
 // Reset PIN complete
 router.post("/reset-pin-complete", resetPinComplete);
+
+// Refresh token
+router.post("/refresh", refreshToken);
 
 module.exports = router;
