@@ -9,15 +9,20 @@ const vehicleRoutes = require("./routes/vehicleRoutes");
 
 const app = express();
 
-app.use(cors({
-  origin: [
-    "http://localhost:3000",
-    "https://4on4.world",
-    "https://4on4.site",
-    /\.vercel\.app$/,
-  ],
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000",
+      "https://4on4.world",
+      "https://4on4.site",
+      /\.vercel\.app$/,
+    ],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  })
+);
+
 
 app.use(express.json({ limit: "5mb" }));
 
