@@ -102,7 +102,16 @@ exports.registerComplete = async (req, res) => {
 
     const { accessToken, refreshToken } = makeTokens(user._id);
 
-    return res.json({ success: true, message: "Account created", user: { id: user._id, phone: user.phoneFull }, accessToken, refreshToken });
+    // Set refresh token as httpOnly cookie
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/api/auth/refresh',
+      maxAge: 14 * 24 * 60 * 60 * 1000,
+    });
+
+    return res.json({ success: true, message: "Account created", user: { id: user._id, phone: user.phoneFull }, accessToken });
   } catch (err) {
     console.error("registerComplete error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -120,8 +129,18 @@ exports.loginUser = async (req, res) => {
     const match = await bcrypt.compare(pin, user.password);
     if (!match) return res.status(400).json({ success: false, message: "Incorrect phone or PIN" });
 
-    const tokens = makeTokens(user._id);
-    return res.json({ success: true, message: "Login successful", user: { id: user._id, phone: user.phoneFull }, ...tokens });
+    const { accessToken, refreshToken } = makeTokens(user._id);
+    
+    // Set refresh token as httpOnly cookie
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/api/auth/refresh',
+      maxAge: 14 * 24 * 60 * 60 * 1000,
+    });
+
+    return res.json({ success: true, message: "Login successful", user: { id: user._id, phone: user.phoneFull }, accessToken });
   } catch (err) {
     console.error("loginUser error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -146,5 +165,27 @@ exports.resetPinComplete = async (req, res) => {
   } catch (err) {
     console.error("resetPinComplete error:", err);
     return res.status(500).json({ success: false, message: "Failed to reset PIN" });
+  }
+};
+
+exports.refreshToken = async (req, res) => {
+  try {
+    // Read refresh token from httpOnly cookie, fallback to request body for migration
+    const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
+    
+    if (!refreshToken) {
+      return res.status(401).json({ success: false, message: "Invalid refresh token" });
+    }
+
+    // Verify refresh token
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET);
+    
+    // Issue new access token
+    const accessToken = jwt.sign({ id: decoded.id }, process.env.JWT_SECRET, { expiresIn: "2h" });
+    
+    return res.json({ success: true, accessToken });
+  } catch (err) {
+    console.error("refreshToken error:", err);
+    return res.status(401).json({ success: false, message: "Invalid refresh token" });
   }
 };

@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 const connectDB = require("./config/db");
 
 const authRoutes = require("./routes/authRoutes");
@@ -12,13 +13,16 @@ const app = express();
 app.use(cors({
   origin: [
     "http://localhost:3000",
+    "http://192.168.0.113:3000",
+    process.env.FRONTEND_ORIGIN,
     "https://4on4.world",
     "https://4on4.site",
     /\.vercel\.app$/,
-  ],
+  ].filter(Boolean),
   credentials: true,
 }));
 
+app.use(cookieParser());
 app.use(express.json({ limit: "5mb" }));
 
 // Connect DB
