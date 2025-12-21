@@ -15,6 +15,9 @@ module.exports = function auth(req, res, next) {
     req.user = { id: decoded.id };
     next();
   } catch (err) {
+    // DEBUG - print verification error (remove in production)
+    console.error("[auth] JWT verify failed:", err?.message);
+    console.error("[auth] token preview:", token ? `${token.slice(0,6)}...${token.slice(-6)}` : "none");
     return res.status(401).json({ success: false, message: "Token is not valid" });
   }
 };
