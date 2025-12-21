@@ -9,7 +9,7 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_VERIFY_SID = process.env.TWILIO_VERIFY_SID;
 
 if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_VERIFY_SID) {
-  console.warn("[authController] Twilio env vars missing.");
+  console.warn("[authController] Twilio env vars missing or incomplete.");
 }
 
 const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN ? twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) : null;
@@ -51,7 +51,15 @@ exports.startVerify = async (req, res) => {
   try {
     const { phone, mode } = req.body;
     if (!phone || !mode) return res.status(400).json({ success: false, message: "Phone and mode required" });
-    if (!twilioClient) return res.status(500).json({ success: false, message: "OTP service not configured" });
+
+    if (!twilioClient) {
+      if (process.env.NODE_ENV === "production") {
+        return res.status(500).json({ success: false, message: "OTP service not configured" });
+      }
+      console.warn("[authController] Twilio not configured — simulating OTP for development.");
+      const tempToken = jwt.sign({ purpose: "verify-dev", phone }, process.env.JWT_SECRET, { expiresIn: "10m" });
+      return res.json({ success: true, message: "OTP simulated (dev)", token: tempToken });
+    }
 
     const phoneE164 = normalizePhoneE164(phone);
     if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid Kenyan phone number" });
@@ -67,31 +75,41 @@ exports.startVerify = async (req, res) => {
 
 exports.checkVerify = async (req, res) => {
   try {
-    const { phone, code, mode } = req.body;
-    if (!phone || !code || !mode) return res.status(400).json({ success: false, message: "Phone, code and mode required" });
+    const { phone, code, mode, token } = req.body;
+    if (!phone || (!code && !token) || !mode) return res.status(400).json({ success: false, message: "Phone, code/token and mode required" });
 
     const phoneE164 = normalizePhoneE164(phone);
+
+    if (!twilioClient) {
+      if (token) {
+        try {
+          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+          if (decoded && decoded.purpose === "verify-dev") {
+            if (mode === "register") {
+              const tempToken = jwt.sign({ purpose: "register", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
+              return res.json({ success: true, token: tempToken, message: "Dev: OTP verified" });
+            }
+            if (mode === "reset") {
+              const resetToken = jwt.sign({ purpose: "resetPin", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
+              return res.json({ success: true, resetToken, message: "Dev: OTP verified" });
+            }
+          }
+        } catch (ex) {
+          console.error("checkVerify dev token failed:", ex?.message);
+          return res.status(400).json({ success: false, message: "Invalid or expired token" });
+        }
+      }
+      return res.status(400).json({ success: false, message: "Dev mode: missing token" });
+    }
+
     const check = await twilioClient.verify.v2.services(TWILIO_VERIFY_SID).verificationChecks.create({ to: phoneE164, code });
 
     if (!check || check.status !== "approved") return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
 
-    const tail = getPhoneTailFromE164(phoneE164);
-
-    if (mode === "register") {
-      const tempToken = jwt.sign({ purpose: "register", phone: phoneE164, phoneTail: tail }, process.env.JWT_SECRET, { expiresIn: "15m" });
-      return res.json({ success: true, token: tempToken, message: "OTP verified. Continue registration." });
-    }
-
-    if (mode === "reset") {
-      const user = await User.findOne({ phoneTail: tail });
-      if (!user) return res.status(400).json({ success: false, message: "Account not found" });
-
-      const resetToken = jwt.sign({ purpose: "resetPin", userId: user._id }, process.env.JWT_SECRET, { expiresIn: "15m" });
-      return res.json({ success: true, resetToken, message: "OTP verified. Continue reset." });
-    }
+    return res.json({ success: true, message: "OTP verified" });
   } catch (err) {
     console.error("checkVerify error:", err);
-    return res.status(500).json({ success: false, message: "Verification failed" });
+    return res.status(500).json({ success: false, message: "Failed to check OTP" });
   }
 };
 
