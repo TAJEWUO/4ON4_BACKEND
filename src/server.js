@@ -31,7 +31,7 @@ const allowedOriginsList = [
 ].filter(Boolean);
 
 const allowedOriginPatterns = [
-  /\.vercel\.app$/,
+  /\\.vercel\\.app$/,
 ];
 
 const corsOptions = {
@@ -41,7 +41,9 @@ const corsOptions = {
     for (const pattern of allowedOriginPatterns) {
       if (pattern.test(origin)) return callback(null, true);
     }
-    console.warn(`CORS policy: origin '${origin}' not allowed`);
+
+    // Debugging: log rejected origin so we can see what the client is sending
+    console.warn(`[CORS] Rejected origin: ${origin}`);
     return callback(new Error(`CORS policy: origin '${origin}' not allowed`), false);
   },
   credentials: true,
@@ -49,27 +51,3 @@ const corsOptions = {
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   optionsSuccessStatus: 204,
 };
-
-app.use(express.json({ limit: "5mb" }));
-app.use(cookieParser());
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
-
-// Connect DB
-connectDB();
-
-// Mount routes
-app.use("/api/auth", authRoutes);
-app.use("/api/profile", profileRoutes);
-app.use("/api/vehicles", vehicleRoutes);
-
-// Root health check
-app.get("/", (req, res) => {
-  res.json({ success: true, message: "4ON4 backend running" });
-});
-
-// Start server
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`🚀 Backend running on port ${PORT}`);
-});
