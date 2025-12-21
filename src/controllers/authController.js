@@ -106,6 +106,21 @@ exports.checkVerify = async (req, res) => {
 
     if (!check || check.status !== "approved") return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
 
+    const tail = getPhoneTailFromE164(phoneE164);
+
+    if (mode === "register") {
+      const tempToken = jwt.sign({ purpose: "register", phone: phoneE164, phoneTail: tail }, process.env.JWT_SECRET, { expiresIn: "15m" });
+      return res.json({ success: true, token: tempToken, message: "OTP verified. Continue registration." });
+    }
+
+    if (mode === "reset") {
+      const user = await User.findOne({ phoneTail: tail });
+      if (!user) return res.status(400).json({ success: false, message: "Account not found" });
+
+      const resetToken = jwt.sign({ purpose: "resetPin", userId: user._id }, process.env.JWT_SECRET, { expiresIn: "15m" });
+      return res.json({ success: true, resetToken, message: "OTP verified. Continue reset." });
+    }
+
     return res.json({ success: true, message: "OTP verified" });
   } catch (err) {
     console.error("checkVerify error:", err);
