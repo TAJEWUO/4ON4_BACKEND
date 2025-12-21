@@ -27,7 +27,9 @@ const allowedOriginsList = [
   "http://127.0.0.1:3000",
   "http://192.168.0.113:3000",
   "https://4on4.world",
+  "https://www.4on4.world",
   "https://4on4.site",
+  "https://www.4on4.site",
 ].filter(Boolean);
 
 const allowedOriginPatterns = [
