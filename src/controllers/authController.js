@@ -65,7 +65,12 @@ exports.startVerify = async (req, res) => {
     return res.json({ success: true, message: "OTP sent" });
   } catch (err) {
     console.error("startVerify error:", err);
-    return res.status(500).json({ success: false, message: "Failed to send OTP" });
+    // Check for Twilio authentication errors
+    if (err.code === 20003) {
+      console.error("[authController] Twilio authentication failed - check credentials");
+      return res.status(500).json({ success: false, message: "SMS service configuration error. Please contact support." });
+    }
+    return res.status(500).json({ success: false, message: "Failed to send OTP. Please try again." });
   }
 };
 
