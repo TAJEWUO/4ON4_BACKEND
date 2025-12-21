@@ -51,3 +51,27 @@ const corsOptions = {
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   optionsSuccessStatus: 204,
 };
+
+// Apply middleware
+app.use(cors(corsOptions));
+app.use(express.json());
+app.use(cookieParser());
+
+// Connect to MongoDB
+connectDB();
+
+// Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/vehicle", vehicleRoutes);
+
+// Health check
+app.get("/", (req, res) => {
+  res.json({ success: true, message: "4ON4 Backend API" });
+});
+
+// Start server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

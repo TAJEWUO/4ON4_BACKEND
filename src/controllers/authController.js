@@ -112,4 +112,133 @@ exports.checkVerify = async (req, res) => {
   }
 };
 
-// NOTE: keep the rest of your authController exports (loginUser, registerComplete, resetPinComplete, loginUser, refreshToken, etc.) below as-is.
+exports.registerComplete = async (req, res) => {
+  try {
+    const { phone, pin, firstName, lastName } = req.body;
+    if (!phone || !pin || !firstName || !lastName) {
+      return res.status(400).json({ success: false, message: "All fields required" });
+    }
+
+    const phoneE164 = normalizePhoneE164(phone);
+    if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid phone number" });
+
+    if (!pinRegex.test(pin)) {
+      return res.status(400).json({ success: false, message: "PIN must be 4 digits" });
+    }
+
+    const existing = await User.findOne({ phone: phoneE164 });
+    if (existing) {
+      return res.status(400).json({ success: false, message: "User already exists" });
+    }
+
+    const hashedPin = await bcrypt.hash(pin, 10);
+    const newUser = new User({
+      phone: phoneE164,
+      pin: hashedPin,
+      firstName,
+      lastName,
+    });
+    await newUser.save();
+
+    const { accessToken, refreshToken } = makeTokens(newUser._id);
+    setRefreshCookie(res, refreshToken);
+
+    return res.status(201).json({
+      success: true,
+      message: "User registered",
+      accessToken,
+      user: { id: newUser._id, phone: newUser.phone, firstName: newUser.firstName, lastName: newUser.lastName },
+    });
+  } catch (err) {
+    console.error("registerComplete error:", err);
+    return res.status(500).json({ success: false, message: "Registration failed" });
+  }
+};
+
+exports.loginUser = async (req, res) => {
+  try {
+    const { phone, pin } = req.body;
+    if (!phone || !pin) {
+      return res.status(400).json({ success: false, message: "Phone and PIN required" });
+    }
+
+    const phoneE164 = normalizePhoneE164(phone);
+    if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid phone number" });
+
+    const user = await User.findOne({ phone: phoneE164 });
+    if (!user) {
+      return res.status(400).json({ success: false, message: "Invalid credentials" });
+    }
+
+    const valid = await bcrypt.compare(pin, user.pin);
+    if (!valid) {
+      return res.status(400).json({ success: false, message: "Invalid credentials" });
+    }
+
+    const { accessToken, refreshToken } = makeTokens(user._id);
+    setRefreshCookie(res, refreshToken);
+
+    return res.json({
+      success: true,
+      message: "Login successful",
+      accessToken,
+      user: { id: user._id, phone: user.phone, firstName: user.firstName, lastName: user.lastName },
+    });
+  } catch (err) {
+    console.error("loginUser error:", err);
+    return res.status(500).json({ success: false, message: "Login failed" });
+  }
+};
+
+exports.resetPinComplete = async (req, res) => {
+  try {
+    const { phone, newPin } = req.body;
+    if (!phone || !newPin) {
+      return res.status(400).json({ success: false, message: "Phone and new PIN required" });
+    }
+
+    const phoneE164 = normalizePhoneE164(phone);
+    if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid phone number" });
+
+    if (!pinRegex.test(newPin)) {
+      return res.status(400).json({ success: false, message: "PIN must be 4 digits" });
+    }
+
+    const user = await User.findOne({ phone: phoneE164 });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const hashedPin = await bcrypt.hash(newPin, 10);
+    user.pin = hashedPin;
+    await user.save();
+
+    return res.json({ success: true, message: "PIN reset successful" });
+  } catch (err) {
+    console.error("resetPinComplete error:", err);
+    return res.status(500).json({ success: false, message: "PIN reset failed" });
+  }
+};
+
+exports.refreshToken = async (req, res) => {
+  try {
+    const token = req.cookies?.refreshToken;
+    if (!token) {
+      return res.status(401).json({ success: false, message: "No refresh token" });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const { accessToken, refreshToken: newRefreshToken } = makeTokens(user._id);
+    setRefreshCookie(res, newRefreshToken);
+
+    return res.json({ success: true, accessToken });
+  } catch (err) {
+    console.error("refreshToken error:", err);
+    return res.status(401).json({ success: false, message: "Invalid refresh token" });
+  }
+};
