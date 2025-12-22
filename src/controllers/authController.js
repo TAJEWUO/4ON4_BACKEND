@@ -68,8 +68,10 @@ exports.startVerify = async (req, res) => {
     const phoneE164 = normalizePhoneE164(phone);
     if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid Kenyan phone number" });
 
+    console.log(`[startVerify] Sending OTP to ${phoneE164} for mode: ${mode}`);
     await twilioClient.verify.v2.services(TWILIO_VERIFY_SID).verifications.create({ to: phoneE164, channel: "sms" });
 
+    console.log(`[startVerify] OTP sent successfully to ${phoneE164}`);
     return res.json({ success: true, message: "OTP sent" });
   } catch (err) {
     console.error("startVerify error:", err);
@@ -117,7 +119,16 @@ exports.checkVerify = async (req, res) => {
 
     if (!check || check.status !== "approved") return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
 
-    // proceed with register/reset logic (existing code would continue here)
+    // Generate token for next step based on mode
+    if (mode === "register") {
+      const tempToken = jwt.sign({ purpose: "register", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
+      return res.json({ success: true, token: tempToken, message: "OTP verified" });
+    }
+    if (mode === "reset") {
+      const resetToken = jwt.sign({ purpose: "resetPin", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
+      return res.json({ success: true, resetToken, message: "OTP verified" });
+    }
+
     return res.json({ success: true, message: "OTP verified" });
   } catch (err) {
     console.error("checkVerify error:", err);
