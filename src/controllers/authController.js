@@ -178,19 +178,24 @@ exports.loginUser = async (req, res) => {
     const phoneE164 = normalizePhoneE164(phone);
     if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid phone number" });
 
+    console.log(`[loginUser] Attempting login for phone: ${phoneE164}`);
+    
     const user = await User.findOne({ phone: phoneE164 });
     if (!user) {
+      console.log(`[loginUser] User not found for phone: ${phoneE164}`);
       return res.status(400).json({ success: false, message: "Invalid credentials" });
     }
 
     const valid = await bcrypt.compare(pin, user.pin);
     if (!valid) {
+      console.log(`[loginUser] Invalid PIN for phone: ${phoneE164}`);
       return res.status(400).json({ success: false, message: "Invalid credentials" });
     }
 
     const { accessToken, refreshToken } = makeTokens(user._id);
     setRefreshCookie(res, refreshToken);
 
+    console.log(`[loginUser] Login successful for user: ${user._id}`);
     return res.json({
       success: true,
       message: "Login successful",
