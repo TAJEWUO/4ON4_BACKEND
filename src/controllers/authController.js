@@ -55,17 +55,18 @@ exports.startVerify = async (req, res) => {
     const { phone, mode } = req.body;
     if (!phone || !mode) return res.status(400).json({ success: false, message: "Phone and mode required" });
 
+    const phoneE164 = normalizePhoneE164(phone);
+
     // If Twilio not configured, simulate in non-production for dev/testing
     if (!twilioClient) {
       if (process.env.NODE_ENV === "production") {
         return res.status(500).json({ success: false, message: "OTP service not configured" });
       }
       console.warn("[authController] Twilio not configured — simulating OTP for development.");
-      const tempToken = jwt.sign({ purpose: "verify-dev", phone }, process.env.JWT_SECRET, { expiresIn: "10m" });
+      const tempToken = jwt.sign({ purpose: "verify-dev", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "10m" });
       return res.json({ success: true, message: "OTP simulated (dev)", token: tempToken });
     }
 
-    const phoneE164 = normalizePhoneE164(phone);
     if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid Kenyan phone number" });
 
     console.log(`[startVerify] Sending OTP to ${phoneE164} for mode: ${mode}`);
@@ -75,9 +76,21 @@ exports.startVerify = async (req, res) => {
     return res.json({ success: true, message: "OTP sent" });
   } catch (err) {
     console.error("startVerify error:", err);
+    
+    const { phone } = req.body;
+    const phoneE164 = normalizePhoneE164(phone);
+    
     // Check for Twilio authentication errors
     if (err.code === 20003) {
       console.error("[authController] Twilio authentication failed - check credentials");
+      
+      // In development, allow bypass with simulated token
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[authController] Using dev mode bypass for Twilio error");
+        const tempToken = jwt.sign({ purpose: "verify-dev", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "10m" });
+        return res.json({ success: true, message: "OTP simulated (dev - Twilio unavailable)", token: tempToken });
+      }
+      
       return res.status(500).json({ success: false, message: "SMS service configuration error. Please contact support." });
     }
     return res.status(500).json({ success: false, message: "Failed to send OTP. Please try again." });
