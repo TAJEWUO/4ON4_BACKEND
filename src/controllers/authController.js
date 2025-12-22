@@ -99,32 +99,26 @@ exports.startVerify = async (req, res) => {
 
 exports.checkVerify = async (req, res) => {
   try {
-    const { phone, code, mode, token } = req.body;
-    if (!phone || (!code && !token) || !mode) return res.status(400).json({ success: false, message: "Phone, code/token and mode required" });
+    const { phone, code, mode } = req.body;
+    if (!phone || !code || !mode) return res.status(400).json({ success: false, message: "Phone, code and mode required" });
 
     const phoneE164 = normalizePhoneE164(phone);
 
-    // Dev flow: if twilio not configured and a token was issued by startVerify dev path
+    // Dev flow: if twilio not configured, accept any 4-digit code
     if (!twilioClient) {
-      if (token) {
-        try {
-          const decoded = jwt.verify(token, process.env.JWT_SECRET);
-          if (decoded && decoded.purpose === "verify-dev") {
-            if (mode === "register") {
-              const tempToken = jwt.sign({ purpose: "register", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
-              return res.json({ success: true, token: tempToken, message: "Dev: OTP verified" });
-            }
-            if (mode === "reset") {
-              const resetToken = jwt.sign({ purpose: "resetPin", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
-              return res.json({ success: true, resetToken, message: "Dev: OTP verified" });
-            }
-          }
-        } catch (ex) {
-          console.error("checkVerify dev token failed:", ex?.message);
-          return res.status(400).json({ success: false, message: "Invalid or expired token" });
-        }
+      console.log("DEV MODE: Accepting any OTP code for", phoneE164);
+      if (!/^\d{4,6}$/.test(code)) {
+        return res.status(400).json({ success: false, message: "Please enter a valid code" });
       }
-      return res.status(400).json({ success: false, message: "Dev mode: missing token" });
+      
+      if (mode === "register") {
+        const tempToken = jwt.sign({ purpose: "register", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
+        return res.json({ success: true, token: tempToken, message: "Dev: OTP verified" });
+      }
+      if (mode === "reset") {
+        const resetToken = jwt.sign({ purpose: "resetPin", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
+        return res.json({ success: true, resetToken, message: "Dev: OTP verified" });
+      }
     }
 
     // Normal Twilio flow
