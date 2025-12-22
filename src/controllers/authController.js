@@ -3,25 +3,27 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const twilio = require("twilio");
 
+// Twilio setup
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_VERIFY_SID = process.env.TWILIO_VERIFY_SID;
 
 let twilioClient = null;
-let twilioConfigValid = false;
+const IS_DEV = process.env.NODE_ENV !== "production";
 
 if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_VERIFY_SID) {
-  console.warn("[authController] Twilio env vars missing or incomplete.");
+  console.warn("⚠️  Twilio not configured - using dev mode");
 } else {
   try {
     twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-    twilioConfigValid = true;
+    console.log("✓ Twilio client initialized");
   } catch (err) {
-    console.error("[authController] Failed to initialize Twilio client:", err.message);
+    console.error("✗ Twilio init failed:", err.message);
   }
 }
 
-function normalizePhoneE164(phone) {
+// Normalize phone to E.164 format (+254...)
+function normalizePhone(phone) {
   if (!phone) return "";
   const digits = phone.replace(/\D/g, "");
   let local = digits;
@@ -32,136 +34,135 @@ function normalizePhoneE164(phone) {
   return "+254" + tail9;
 }
 
-const pinRegex = /^\d{4}$/;
-
-const makeTokens = (userId) => {
+// Generate access + refresh tokens
+function makeTokens(userId) {
   const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "2h" });
   const refreshToken = jwt.sign({ id: userId }, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, { expiresIn: "14d" });
   return { accessToken, refreshToken };
-};
+}
 
+// Set refresh token as httpOnly cookie
 function setRefreshCookie(res, refreshToken) {
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/api/auth/refresh",
-    maxAge: 14 * 24 * 60 * 60 * 1000, // 14 days
+    maxAge: 14 * 24 * 60 * 60 * 1000,
   });
 }
 
+// ============================================================================
+// 1. START VERIFICATION (Send OTP)
+// ============================================================================
 exports.startVerify = async (req, res) => {
   try {
-    const { phone, mode } = req.body;
-    if (!phone || !mode) return res.status(400).json({ success: false, message: "Phone and mode required" });
-
-    const phoneE164 = normalizePhoneE164(phone);
-
-    // If Twilio not configured, simulate in non-production for dev/testing
-    if (!twilioClient) {
-      if (process.env.NODE_ENV === "production") {
-        return res.status(500).json({ success: false, message: "OTP service not configured" });
-      }
-      console.warn("[authController] Twilio not configured — simulating OTP for development.");
-      const tempToken = jwt.sign({ purpose: "verify-dev", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "10m" });
-      return res.json({ success: true, message: "OTP simulated (dev)", token: tempToken });
-    }
-
-    if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid Kenyan phone number" });
-
-    console.log(`[startVerify] Sending OTP to ${phoneE164} for mode: ${mode}`);
-    await twilioClient.verify.v2.services(TWILIO_VERIFY_SID).verifications.create({ to: phoneE164, channel: "sms" });
-
-    console.log(`[startVerify] OTP sent successfully to ${phoneE164}`);
-    return res.json({ success: true, message: "OTP sent" });
-  } catch (err) {
-    console.error("startVerify error:", err);
-    
     const { phone } = req.body;
-    const phoneE164 = normalizePhoneE164(phone);
-    
-    // Check for Twilio authentication errors
-    if (err.code === 20003) {
-      console.error("[authController] Twilio authentication failed - check credentials");
-      
-      // In development, allow bypass with simulated token
-      if (process.env.NODE_ENV !== "production") {
-        console.warn("[authController] Using dev mode bypass for Twilio error");
-        const tempToken = jwt.sign({ purpose: "verify-dev", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "10m" });
-        return res.json({ success: true, message: "OTP simulated (dev - Twilio unavailable)", token: tempToken });
-      }
-      
-      return res.status(500).json({ success: false, message: "SMS service configuration error. Please contact support." });
+    if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
+
+    const phoneE164 = normalizePhone(phone);
+    if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid phone number" });
+
+    // DEV MODE: Skip Twilio, return success immediately
+    if (!twilioClient && IS_DEV) {
+      console.log("📱 DEV: Simulating OTP send to", phoneE164);
+      return res.json({ success: true, message: "OTP sent (dev mode)" });
     }
-    return res.status(500).json({ success: false, message: "Failed to send OTP. Please try again." });
+
+    // PRODUCTION: Use Twilio
+    if (!twilioClient) {
+      return res.status(500).json({ success: false, message: "SMS service unavailable" });
+    }
+
+    await twilioClient.verify.v2.services(TWILIO_VERIFY_SID).verifications.create({ 
+      to: phoneE164, 
+      channel: "sms" 
+    });
+
+    console.log("✓ OTP sent to", phoneE164);
+    return res.json({ success: true, message: "OTP sent" });
+
+  } catch (err) {
+    console.error("✗ startVerify error:", err.message);
+    
+    // Fallback for Twilio errors in dev
+    if (err.code === 20003 && IS_DEV) {
+      console.log("📱 DEV: Twilio auth failed, using fallback");
+      return res.json({ success: true, message: "OTP sent (dev fallback)" });
+    }
+    
+    return res.status(500).json({ success: false, message: "Failed to send OTP" });
   }
 };
 
+// ============================================================================
+// 2. CHECK VERIFICATION (Verify OTP)
+// ============================================================================
 exports.checkVerify = async (req, res) => {
   try {
-    const { phone, code, mode } = req.body;
-    if (!phone || !code || !mode) return res.status(400).json({ success: false, message: "Phone, code and mode required" });
+    const { phone, code } = req.body;
+    if (!phone || !code) return res.status(400).json({ success: false, message: "Phone and code required" });
 
-    const phoneE164 = normalizePhoneE164(phone);
+    const phoneE164 = normalizePhone(phone);
+    if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid phone number" });
 
-    // Dev flow: if twilio not configured, accept any 4-digit code
-    if (!twilioClient) {
-      console.log("DEV MODE: Accepting any OTP code for", phoneE164);
+    // DEV MODE: Accept any 4-6 digit code
+    if (!twilioClient && IS_DEV) {
       if (!/^\d{4,6}$/.test(code)) {
-        return res.status(400).json({ success: false, message: "Please enter a valid code" });
+        return res.status(400).json({ success: false, message: "Invalid code format" });
       }
-      
-      if (mode === "register") {
-        const tempToken = jwt.sign({ purpose: "register", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
-        return res.json({ success: true, token: tempToken, message: "Dev: OTP verified" });
-      }
-      if (mode === "reset") {
-        const resetToken = jwt.sign({ purpose: "resetPin", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
-        return res.json({ success: true, resetToken, message: "Dev: OTP verified" });
-      }
+      console.log("✓ DEV: OTP verified for", phoneE164);
+      return res.json({ success: true, message: "OTP verified (dev mode)" });
     }
 
-    // Normal Twilio flow
-    const check = await twilioClient.verify.v2.services(TWILIO_VERIFY_SID).verificationChecks.create({ to: phoneE164, code });
-
-    if (!check || check.status !== "approved") return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
-
-    // Generate token for next step based on mode
-    if (mode === "register") {
-      const tempToken = jwt.sign({ purpose: "register", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
-      return res.json({ success: true, token: tempToken, message: "OTP verified" });
-    }
-    if (mode === "reset") {
-      const resetToken = jwt.sign({ purpose: "resetPin", phone: phoneE164 }, process.env.JWT_SECRET, { expiresIn: "15m" });
-      return res.json({ success: true, resetToken, message: "OTP verified" });
+    // PRODUCTION: Verify with Twilio
+    if (!twilioClient) {
+      return res.status(500).json({ success: false, message: "SMS service unavailable" });
     }
 
+    const check = await twilioClient.verify.v2.services(TWILIO_VERIFY_SID)
+      .verificationChecks.create({ to: phoneE164, code });
+
+    if (check.status !== "approved") {
+      return res.status(400).json({ success: false, message: "Invalid or expired code" });
+    }
+
+    console.log("✓ OTP verified for", phoneE164);
     return res.json({ success: true, message: "OTP verified" });
+
   } catch (err) {
-    console.error("checkVerify error:", err);
-    return res.status(500).json({ success: false, message: "Failed to check OTP" });
+    console.error("✗ checkVerify error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to verify OTP" });
   }
 };
 
+// ============================================================================
+// 3. COMPLETE REGISTRATION
+// ============================================================================
 exports.registerComplete = async (req, res) => {
   try {
     const { phone, pin, firstName, lastName } = req.body;
+    
     if (!phone || !pin || !firstName || !lastName) {
       return res.status(400).json({ success: false, message: "All fields required" });
     }
 
-    const phoneE164 = normalizePhoneE164(phone);
-    if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid phone number" });
+    const phoneE164 = normalizePhone(phone);
+    if (!phoneE164) {
+      return res.status(400).json({ success: false, message: "Invalid phone number" });
+    }
 
-    if (!pinRegex.test(pin)) {
+    if (!/^\d{4}$/.test(pin)) {
       return res.status(400).json({ success: false, message: "PIN must be 4 digits" });
     }
 
+    // Check if user already exists
     const existing = await User.findOne({ phone: phoneE164 });
     if (existing) {
-      return res.status(400).json({ success: false, message: "User already exists" });
+      return res.status(400).json({ success: false, message: "Phone number already registered" });
     }
 
+    // Create new user
     const hashedPin = await bcrypt.hash(pin, 10);
     const newUser = new User({
       phone: phoneE164,
@@ -171,110 +172,151 @@ exports.registerComplete = async (req, res) => {
     });
     await newUser.save();
 
+    // Generate tokens
     const { accessToken, refreshToken } = makeTokens(newUser._id);
     setRefreshCookie(res, refreshToken);
 
+    console.log("✓ User registered:", phoneE164);
+
     return res.status(201).json({
       success: true,
-      message: "User registered",
+      message: "Registration successful",
       accessToken,
-      user: { id: newUser._id, phone: newUser.phone, firstName: newUser.firstName, lastName: newUser.lastName },
+      user: { 
+        id: newUser._id, 
+        phone: newUser.phone, 
+        firstName: newUser.firstName, 
+        lastName: newUser.lastName 
+      },
     });
+
   } catch (err) {
-    console.error("registerComplete error:", err);
+    console.error("✗ registerComplete error:", err.message);
     return res.status(500).json({ success: false, message: "Registration failed" });
   }
 };
 
+// ============================================================================
+// 4. LOGIN
+// ============================================================================
 exports.loginUser = async (req, res) => {
   try {
     const { phone, pin } = req.body;
+    
     if (!phone || !pin) {
       return res.status(400).json({ success: false, message: "Phone and PIN required" });
     }
 
-    const phoneE164 = normalizePhoneE164(phone);
-    if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid phone number" });
+    const phoneE164 = normalizePhone(phone);
+    if (!phoneE164) {
+      return res.status(400).json({ success: false, message: "Invalid phone number" });
+    }
 
-    console.log(`[loginUser] Attempting login for phone: ${phoneE164}`);
-    
+    // Find user
     const user = await User.findOne({ phone: phoneE164 });
     if (!user) {
-      console.log(`[loginUser] User not found for phone: ${phoneE164}`);
       return res.status(400).json({ success: false, message: "Invalid credentials" });
     }
 
-    const valid = await bcrypt.compare(pin, user.pin);
-    if (!valid) {
-      console.log(`[loginUser] Invalid PIN for phone: ${phoneE164}`);
+    // Verify PIN
+    const validPin = await bcrypt.compare(pin, user.pin);
+    if (!validPin) {
       return res.status(400).json({ success: false, message: "Invalid credentials" });
     }
 
+    // Generate tokens
     const { accessToken, refreshToken } = makeTokens(user._id);
     setRefreshCookie(res, refreshToken);
 
-    console.log(`[loginUser] Login successful for user: ${user._id}`);
+    console.log("✓ User logged in:", phoneE164);
+
     return res.json({
       success: true,
       message: "Login successful",
       accessToken,
-      user: { id: user._id, phone: user.phone, firstName: user.firstName, lastName: user.lastName },
+      user: { 
+        id: user._id, 
+        phone: user.phone, 
+        firstName: user.firstName, 
+        lastName: user.lastName 
+      },
     });
+
   } catch (err) {
-    console.error("loginUser error:", err);
+    console.error("✗ loginUser error:", err.message);
     return res.status(500).json({ success: false, message: "Login failed" });
   }
 };
 
+// ============================================================================
+// 5. RESET PIN
+// ============================================================================
 exports.resetPinComplete = async (req, res) => {
   try {
     const { phone, newPin } = req.body;
+    
     if (!phone || !newPin) {
       return res.status(400).json({ success: false, message: "Phone and new PIN required" });
     }
 
-    const phoneE164 = normalizePhoneE164(phone);
-    if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid phone number" });
+    const phoneE164 = normalizePhone(phone);
+    if (!phoneE164) {
+      return res.status(400).json({ success: false, message: "Invalid phone number" });
+    }
 
-    if (!pinRegex.test(newPin)) {
+    if (!/^\d{4}$/.test(newPin)) {
       return res.status(400).json({ success: false, message: "PIN must be 4 digits" });
     }
 
+    // Find user
     const user = await User.findOne({ phone: phoneE164 });
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    // Update PIN
     const hashedPin = await bcrypt.hash(newPin, 10);
     user.pin = hashedPin;
     await user.save();
 
+    console.log("✓ PIN reset for:", phoneE164);
+
     return res.json({ success: true, message: "PIN reset successful" });
+
   } catch (err) {
-    console.error("resetPinComplete error:", err);
+    console.error("✗ resetPinComplete error:", err.message);
     return res.status(500).json({ success: false, message: "PIN reset failed" });
   }
 };
 
+// ============================================================================
+// 6. REFRESH TOKEN
+// ============================================================================
 exports.refreshToken = async (req, res) => {
   try {
     const token = req.cookies?.refreshToken;
+    
     if (!token) {
       return res.status(401).json({ success: false, message: "No refresh token" });
     }
 
+    // Verify refresh token
     const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET);
+    
+    // Find user
     const user = await User.findById(decoded.id);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    // Generate new tokens
     const { accessToken, refreshToken: newRefreshToken } = makeTokens(user._id);
     setRefreshCookie(res, newRefreshToken);
 
     return res.json({ success: true, accessToken });
+
   } catch (err) {
-    console.error("refreshToken error:", err);
+    console.error("✗ refreshToken error:", err.message);
     return res.status(401).json({ success: false, message: "Invalid refresh token" });
   }
 };
