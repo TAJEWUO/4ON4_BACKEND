@@ -7,11 +7,19 @@ const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_VERIFY_SID = process.env.TWILIO_VERIFY_SID;
 
+let twilioClient = null;
+let twilioConfigValid = false;
+
 if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_VERIFY_SID) {
   console.warn("[authController] Twilio env vars missing or incomplete.");
+} else {
+  try {
+    twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+    twilioConfigValid = true;
+  } catch (err) {
+    console.error("[authController] Failed to initialize Twilio client:", err.message);
+  }
 }
-
-const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN ? twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) : null;
 
 function normalizePhoneE164(phone) {
   if (!phone) return "";
