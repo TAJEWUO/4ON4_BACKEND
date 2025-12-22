@@ -25,6 +25,7 @@ const allowedOriginsList = [
   frontendEnv,
   "http://localhost:3000",
   "http://127.0.0.1:3000",
+  "http://192.168.0.100:3000",
   "http://192.168.0.113:3000",
   "https://4on4.world",
   "https://www.4on4.world",
