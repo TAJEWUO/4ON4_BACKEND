@@ -10,6 +10,7 @@ const TWILIO_VERIFY_SID = process.env.TWILIO_VERIFY_SID;
 
 let twilioClient = null;
 const IS_DEV = process.env.NODE_ENV !== "production";
+const DEV_BYPASS = process.env.DEV_BYPASS === "true"; // Skip all auth checks
 
 if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_VERIFY_SID) {
   console.warn("⚠️  Twilio not configured - using dev mode");
@@ -63,6 +64,12 @@ exports.startVerify = async (req, res) => {
     const phoneE164 = normalizePhone(phone);
     if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid phone number" });
 
+    // DEV BYPASS: Skip everything, instant success
+    if (DEV_BYPASS) {
+      console.log("🚀 DEV_BYPASS: Auto-approving OTP for", phoneE164);
+      return res.json({ success: true, message: "OTP bypassed (dev mode)" });
+    }
+
     // DEV MODE: Skip Twilio, return success immediately
     if (!twilioClient && IS_DEV) {
       console.log("📱 DEV: Simulating OTP send to", phoneE164);
@@ -105,6 +112,12 @@ exports.checkVerify = async (req, res) => {
 
     const phoneE164 = normalizePhone(phone);
     if (!phoneE164) return res.status(400).json({ success: false, message: "Invalid phone number" });
+
+    // DEV BYPASS: Accept any code instantly
+    if (DEV_BYPASS) {
+      console.log("🚀 DEV_BYPASS: Auto-accepting code for", phoneE164);
+      return res.json({ success: true, message: "OTP bypassed (dev mode)" });
+    }
 
     // DEV MODE: Accept any 4-6 digit code
     if (!twilioClient && IS_DEV) {
@@ -154,6 +167,25 @@ exports.registerComplete = async (req, res) => {
 
     if (!/^\d{4}$/.test(pin)) {
       return res.status(400).json({ success: false, message: "PIN must be 4 digits" });
+    }
+
+    // DEV BYPASS: Auto-login if user exists, or create new user
+    if (DEV_BYPASS) {
+      console.log("🚀 DEV_BYPASS: Auto-registering/logging in", phoneE164);
+      
+      let user = await User.findOne({ phone: phoneE164 });
+      if (user) {
+        // User exists - just log them in
+        const { accessToken, refreshToken } = makeTokens(user._id);
+        setRefreshCookie(res, refreshToken);
+        return res.status(200).json({
+          success: true,
+          message: "Auto-login (user exists)",
+          accessToken,
+          user: { id: user._id, phone: user.phone, firstName: user.firstName, lastName: user.lastName },
+        });
+      }
+      // Continue to create new user below
     }
 
     // Check if user already exists
@@ -210,6 +242,34 @@ exports.loginUser = async (req, res) => {
     const phoneE164 = normalizePhone(phone);
     if (!phoneE164) {
       return res.status(400).json({ success: false, message: "Invalid phone number" });
+    }
+
+    // DEV BYPASS: Auto-create user if doesn't exist, always login
+    if (DEV_BYPASS) {
+      console.log("🚀 DEV_BYPASS: Auto-login for", phoneE164);
+      
+      let user = await User.findOne({ phone: phoneE164 });
+      if (!user) {
+        // Create user on the fly
+        const hashedPin = await bcrypt.hash(pin, 10);
+        user = new User({
+          phone: phoneE164,
+          pin: hashedPin,
+          firstName: "Dev",
+          lastName: "User",
+        });
+        await user.save();
+        console.log("🚀 DEV_BYPASS: Created new user", phoneE164);
+      }
+      
+      const { accessToken, refreshToken } = makeTokens(user._id);
+      setRefreshCookie(res, refreshToken);
+      return res.json({
+        success: true,
+        message: "Auto-login (dev bypass)",
+        accessToken,
+        user: { id: user._id, phone: user.phone, firstName: user.firstName, lastName: user.lastName },
+      });
     }
 
     // Find user
