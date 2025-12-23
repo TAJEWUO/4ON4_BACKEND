@@ -156,8 +156,8 @@ exports.registerComplete = async (req, res) => {
   try {
     const { phone, pin, firstName, lastName } = req.body;
     
-    if (!phone || !pin || !firstName || !lastName) {
-      return res.status(400).json({ success: false, message: "All fields required" });
+    if (!phone || !pin) {
+      return res.status(400).json({ success: false, message: "Phone and PIN required" });
     }
 
     const phoneE164 = normalizePhone(phone);
@@ -198,6 +198,10 @@ exports.registerComplete = async (req, res) => {
     const hashedPin = await bcrypt.hash(pin, 10);
     const newUser = new User({
       phone: phoneE164,
+      pin: hashedPin,
+      firstName: firstName || "",
+      lastName: lastName || "",
+    });
       pin: hashedPin,
       firstName,
       lastName,
