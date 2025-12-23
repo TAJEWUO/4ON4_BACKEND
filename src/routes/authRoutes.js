@@ -3,30 +3,18 @@ const express = require("express");
 const router = express.Router();
 
 const {
-  startVerify,
-  checkVerify,
-  registerComplete,
-  loginUser,
-  resetPinComplete,
+  register,
+  login,
   refreshToken,
 } = require("../controllers/authController");
 
-// Twilio verification start
-router.post("/verify/start", startVerify);
-
-// Twilio verification check
-router.post("/verify/check", checkVerify);
-
-// Complete registration
-router.post("/register-complete", registerComplete);
+// Register new user
+router.post("/register", register);
 
 // Login
-router.post("/login", loginUser);
+router.post("/login", login);
 
-// Refresh access token (cookie-based preferred)
+// Refresh access token (cookie-based)
 router.post("/refresh", refreshToken);
-
-// Reset PIN complete
-router.post("/reset-pin-complete", resetPinComplete);
 
 module.exports = router;

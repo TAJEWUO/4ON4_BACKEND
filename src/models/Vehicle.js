@@ -12,15 +12,27 @@ const vehicleSchema = new mongoose.Schema(
 
     plateNumber: { type: String, required: true },
     model: { type: String, default: "" },
-    seatCount: { type: Number, default: 4 }, // 4..14
-    tripType: { type: String, enum: ["centralized", "by-road", "both", ""], default: "" },
-    color: { type: String, default: "" },
-    windowType: { type: String, enum: ["glass", "canvas", "both", ""], default: "glass" },
+    seatCount: { type: Number, default: 4, min: 4, max: 14 },
+    tripType: { 
+      type: String, 
+      enum: ["LONG", "CROSS COUNTRY", "CITY", "BY ROAD", "PHOTOGRAPHY", ""], 
+      default: "" 
+    },
+    color: { 
+      type: String, 
+      enum: ["GREEN", "BEIGE", "BROWN", "CREAM", "DARK GREEN", "LIGHT GREEN", ""], 
+      default: "" 
+    },
+    windowType: { 
+      type: String, 
+      enum: ["GLASS", "CANVA", "BOTH", ""], 
+      default: "GLASS" 
+    },
     sunroof: { type: Boolean, default: false },
     fourByFour: { type: Boolean, default: false },
-    additionalFeatures: [{ type: String }], // e.g. wifi, cool box
+    additionalFeatures: { type: String, maxlength: 250 }, // ~50 words
 
-    // images: up to 3
+    // images: 1-5 images
     images: [fileRefSchema],
 
     // documents (pdfs etc) - allow multiple

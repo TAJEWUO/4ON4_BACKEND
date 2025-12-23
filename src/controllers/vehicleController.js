@@ -2,6 +2,7 @@
 const Vehicle = require("../models/Vehicle");
 const { ok, error } = require("../utils/response");
 const { deleteFile } = require("../services/fileService");
+const { convertMultipleToWebP } = require("../utils/imageConverter");
 
 // Upload vehicle (FormData). Files: images (max 3), documents (pdfs)
 exports.uploadVehicle = async (req, res) => {
@@ -27,26 +28,23 @@ exports.uploadVehicle = async (req, res) => {
     const sunroofBool = sunroof === "true" || sunroof === true || sunroof === "1";
     const fourByFourBool = fourByFour === "true" || fourByFour === true || fourByFour === "1";
 
-    // parse additional features CSV or JSON
-    let features = [];
-    if (additionalFeatures) {
-      try {
-        features = typeof additionalFeatures === "string" && additionalFeatures.startsWith("[") ? JSON.parse(additionalFeatures) : additionalFeatures.split ? additionalFeatures.split(",").map(s => s.trim()).filter(Boolean) : [];
-      } catch (e) {
-        features = (additionalFeatures || "").split(",").map(s => s.trim()).filter(Boolean);
-      }
-    }
-
     // Gather files
     const images = [];
     const docs = [];
 
     if (req.files) {
-      // images field
+      // images field (1-5 images)
       if (req.files.images) {
-        for (const f of req.files.images.slice(0, 3)) {
-          images.push({ path: `uploads/vehicles/${f.filename}` });
+        const imagePaths = [];
+        for (const f of req.files.images.slice(0, 5)) {
+          imagePaths.push(f.path);
         }
+        // Convert all images to WebP
+        const webpPaths = await convertMultipleToWebP(imagePaths);
+        webpPaths.forEach(webpPath => {
+          const relativePath = webpPath.replace(/\\/g, '/').split('uploads/')[1];
+          images.push({ path: `uploads/${relativePath}` });
+        });
       }
       // documents field
       if (req.files.documents) {
@@ -60,13 +58,13 @@ exports.uploadVehicle = async (req, res) => {
       userId,
       plateNumber,
       model: model || "",
-      seatCount: seatCount ? Number(seatCount) : undefined,
+      seatCount: seatCount ? Number(seatCount) : 4,
       tripType: tripType || "",
       color: color || "",
-      windowType: windowType || "glass",
+      windowType: windowType || "GLASS",
       sunroof: !!sunroofBool,
       fourByFour: !!fourByFourBool,
-      additionalFeatures: features,
+      additionalFeatures: additionalFeatures || "",
       images,
       documents: docs,
     });
@@ -99,10 +97,21 @@ exports.getVehiclesByUser = async (req, res) => {
 exports.getVehicleById = async (req, res) => {
   try {
     const { vehicleId } = req.params;
+    console.log("[GET VEHICLE BY ID] Fetching vehicle:", vehicleId);
     const v = await Vehicle.findById(vehicleId).lean();
     if (!v) return error(res, "Vehicle not found", 404);
+    console.log("[GET VEHICLE BY ID] Found vehicle:", {
+      plateNumber: v.plateNumber,
+      model: v.model,
+      seatCount: v.seatCount,
+      tripType: v.tripType,
+      color: v.color,
+      windowType: v.windowType,
+      imagesCount: v.images?.length
+    });
     v.images = (v.images || []).map(i => i.path || i);
     v.documents = (v.documents || []).map(d => d.path || d);
+    console.log("[GET VEHICLE BY ID] Returning vehicle with images:", v.images);
     return ok(res, { vehicle: v });
   } catch (err) {
     console.error("getVehicleById:", err);
@@ -176,9 +185,16 @@ exports.updateVehicle = async (req, res) => {
     // Add new files if present
     if (req.files) {
       if (req.files.images) {
+        const imagePaths = [];
         for (const f of req.files.images.slice(0, 3)) {
-          v.images.push({ path: `uploads/vehicles/${f.filename}` });
+          imagePaths.push(f.path);
         }
+        // Convert all images to WebP
+        const webpPaths = await convertMultipleToWebP(imagePaths);
+        webpPaths.forEach(webpPath => {
+          const relativePath = webpPath.replace(/\\/g, '/').split('uploads/')[1];
+          v.images.push({ path: `uploads/${relativePath}` });
+        });
       }
       if (req.files.documents) {
         for (const f of req.files.documents) {
