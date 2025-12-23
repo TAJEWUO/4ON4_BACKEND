@@ -202,10 +202,6 @@ exports.registerComplete = async (req, res) => {
       firstName: firstName || "",
       lastName: lastName || "",
     });
-      pin: hashedPin,
-      firstName,
-      lastName,
-    });
     await newUser.save();
 
     // Generate tokens
