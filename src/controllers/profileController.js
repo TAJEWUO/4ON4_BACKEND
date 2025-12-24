@@ -122,7 +122,9 @@ exports.updateProfileAvatar = async (req, res) => {
     await profile.save();
 
     return ok(res, {
-      profilePicture: profile.profilePicture.path,
+      profilePicture: {
+        path: profile.profilePicture.path,
+      },
     });
   } catch (err) {
     console.error("updateProfileAvatar:", err);
