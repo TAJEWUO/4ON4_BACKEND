@@ -115,8 +115,12 @@ exports.updateProfileAvatar = async (req, res) => {
       return error(res, "No image uploaded", 400);
     }
 
+    // Convert to WebP
+    const webpPath = await convertToWebP(req.file.path);
+    const relativePath = webpPath.replace(/\\/g, '/').split('uploads/')[1];
+
     profile.profilePicture = {
-      path: `uploads/users/${req.file.filename}`,
+      path: `uploads/${relativePath}`,
     };
     profile.updatedAt = new Date();
     await profile.save();

@@ -27,6 +27,7 @@ const allowedOriginsList = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
   "http://192.168.0.100:3000",
+  "http://192.168.0.105:3000",
   "http://192.168.0.113:3000",
   "https://4on4.world",
   "https://www.4on4.world",
@@ -78,7 +79,7 @@ app.get("/", (req, res) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+const PORT = process.env.PORT || 3002;
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
