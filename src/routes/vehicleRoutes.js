@@ -29,6 +29,9 @@ router.put(
   vehicleController.updateVehicle
 );
 
+// Delete individual image from vehicle
+router.delete("/:vehicleId/image", auth, vehicleController.deleteVehicleImage);
+
 router.delete("/:vehicleId", auth, vehicleController.deleteVehicle);
 
 module.exports = router;

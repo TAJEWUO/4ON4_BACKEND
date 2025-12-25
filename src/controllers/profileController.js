@@ -1,6 +1,7 @@
 const UserProfile = require("../models/UserProfile");
 const { ok, error } = require("../utils/response");
 const { convertToWebP } = require("../utils/imageConverter");
+const { API_URL } = require("../config/env");
 
 /* ───────────────────────────────────────────────
    GET MY PROFILE
@@ -241,11 +242,23 @@ async function applyProfileFields(profile, req) {
 }
 
 function serialize(profile) {
-  if (profile.profilePicture?.path)
-    profile.profilePicture = profile.profilePicture.path;
-  if (profile.idImage?.path) profile.idImage = profile.idImage.path;
-  if (profile.passportImage?.path)
-    profile.passportImage = profile.passportImage.path;
-  if (profile.traImage?.path) profile.traImage = profile.traImage.path;
+  const baseUrl = API_URL;
+  
+  if (profile.profilePicture?.path) {
+    const path = profile.profilePicture.path.replace(/^\/?/, ''); // Remove leading slash if exists
+    profile.profilePicture = `${baseUrl}/${path}`;
+  }
+  if (profile.idImage?.path) {
+    const path = profile.idImage.path.replace(/^\/?/, '');
+    profile.idImage = `${baseUrl}/${path}`;
+  }
+  if (profile.passportImage?.path) {
+    const path = profile.passportImage.path.replace(/^\/?/, '');
+    profile.passportImage = `${baseUrl}/${path}`;
+  }
+  if (profile.traImage?.path) {
+    const path = profile.traImage.path.replace(/^\/?/, '');
+    profile.traImage = `${baseUrl}/${path}`;
+  }
   return profile;
 }

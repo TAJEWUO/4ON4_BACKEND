@@ -62,8 +62,33 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 
-// Serve static files from uploads directory
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+// Serve static files from uploads directory with cache headers (PUBLIC - no auth required)
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), {
+  maxAge: '7d',           // Cache for 7 days in browser
+  etag: true,             // Enable ETag for cache validation
+  lastModified: true,
+  setHeaders: function(res, filePath) {
+    // CORS headers for image loading from different origins
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    
+    // Cache control - allow revalidation
+    res.setHeader('Cache-Control', 'public, max-age=604800, must-revalidate'); // 7 days
+    
+    // Content type headers
+    if (filePath.endsWith('.webp')) {
+      res.setHeader('Content-Type', 'image/webp');
+    } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+      res.setHeader('Content-Type', 'image/jpeg');
+    } else if (filePath.endsWith('.png')) {
+      res.setHeader('Content-Type', 'image/png');
+    }
+  }
+}));
+
+// Handle CORS preflight for uploads
+app.options('/uploads/*', cors(corsOptions));
 
 // Connect to MongoDB
 connectDB();

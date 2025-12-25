@@ -13,11 +13,10 @@ const vehicleSchema = new mongoose.Schema(
     plateNumber: { type: String, required: true },
     model: { type: String, default: "" },
     seatCount: { type: Number, default: 4, min: 4, max: 14 },
-    tripType: { 
+    tripType: [{ 
       type: String, 
-      enum: ["LONG", "CROSS COUNTRY", "CITY", "BY ROAD", "PHOTOGRAPHY", ""], 
-      default: "" 
-    },
+      enum: ["LONG", "CROSS COUNTRY", "CITY", "BY ROAD", "PHOTOGRAPHY"] 
+    }],
     color: { 
       type: String, 
       enum: ["GREEN", "BEIGE", "BROWN", "CREAM", "DARK GREEN", "LIGHT GREEN", ""], 

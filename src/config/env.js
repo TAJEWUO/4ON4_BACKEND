@@ -14,5 +14,6 @@ module.exports = {
   TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN || "",
   TWILIO_VERIFY_SID: process.env.TWILIO_VERIFY_SID || "",
   FRONTEND_URL: required("FRONTEND_URL", "http://localhost:3000"),
+  API_URL: required("API_URL", "http://localhost:3002"),
   UPLOAD_DIR: required("UPLOAD_DIR", "uploads"),
 };
