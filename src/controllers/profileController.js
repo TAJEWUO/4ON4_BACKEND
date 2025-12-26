@@ -1,7 +1,6 @@
 const UserProfile = require("../models/UserProfile");
 const { ok, error } = require("../utils/response");
-const { convertToWebP } = require("../utils/imageConverter");
-const { API_URL } = require("../config/env");
+const { uploadToCloudinary, deleteFromCloudinary, getPublicIdFromUrl } = require("../services/cloudinaryService");
 
 /* ───────────────────────────────────────────────
    GET MY PROFILE
@@ -116,12 +115,17 @@ exports.updateProfileAvatar = async (req, res) => {
       return error(res, "No image uploaded", 400);
     }
 
-    // Convert to WebP
-    const webpPath = await convertToWebP(req.file.path);
-    const relativePath = webpPath.replace(/\\/g, '/').split('uploads/')[1];
+    // Delete old profile picture from Cloudinary if exists
+    if (profile.profilePicture?.publicId) {
+      await deleteFromCloudinary(profile.profilePicture.publicId);
+    }
+
+    // Upload to Cloudinary
+    const cloudinaryResult = await uploadToCloudinary(req.file.path, '4on4/users');
 
     profile.profilePicture = {
-      path: `uploads/${relativePath}`,
+      path: cloudinaryResult.url,
+      publicId: cloudinaryResult.publicId,
     };
     profile.updatedAt = new Date();
     await profile.save();
@@ -209,31 +213,47 @@ async function applyProfileFields(profile, req) {
 
   if (req.files) {
     if (req.files.profilePicture?.[0]) {
-      const webpPath = await convertToWebP(req.files.profilePicture[0].path);
-      const relativePath = webpPath.replace(/\\/g, '/').split('uploads/')[1];
+      // Delete old profile picture from Cloudinary if exists
+      if (profile.profilePicture?.publicId) {
+        await deleteFromCloudinary(profile.profilePicture.publicId);
+      }
+      const cloudinaryResult = await uploadToCloudinary(req.files.profilePicture[0].path, '4on4/users');
       profile.profilePicture = {
-        path: `uploads/${relativePath}`,
+        path: cloudinaryResult.url,
+        publicId: cloudinaryResult.publicId,
       };
     }
     if (req.files.idImage?.[0]) {
-      const webpPath = await convertToWebP(req.files.idImage[0].path);
-      const relativePath = webpPath.replace(/\\/g, '/').split('uploads/')[1];
+      // Delete old ID image from Cloudinary if exists
+      if (profile.idImage?.publicId) {
+        await deleteFromCloudinary(profile.idImage.publicId);
+      }
+      const cloudinaryResult = await uploadToCloudinary(req.files.idImage[0].path, '4on4/users/documents');
       profile.idImage = {
-        path: `uploads/${relativePath}`,
+        path: cloudinaryResult.url,
+        publicId: cloudinaryResult.publicId,
       };
     }
     if (req.files.passportImage?.[0]) {
-      const webpPath = await convertToWebP(req.files.passportImage[0].path);
-      const relativePath = webpPath.replace(/\\/g, '/').split('uploads/')[1];
+      // Delete old passport image from Cloudinary if exists
+      if (profile.passportImage?.publicId) {
+        await deleteFromCloudinary(profile.passportImage.publicId);
+      }
+      const cloudinaryResult = await uploadToCloudinary(req.files.passportImage[0].path, '4on4/users/documents');
       profile.passportImage = {
-        path: `uploads/${relativePath}`,
+        path: cloudinaryResult.url,
+        publicId: cloudinaryResult.publicId,
       };
     }
     if (req.files.traImage?.[0]) {
-      const webpPath = await convertToWebP(req.files.traImage[0].path);
-      const relativePath = webpPath.replace(/\\/g, '/').split('uploads/')[1];
+      // Delete old TRA image from Cloudinary if exists
+      if (profile.traImage?.publicId) {
+        await deleteFromCloudinary(profile.traImage.publicId);
+      }
+      const cloudinaryResult = await uploadToCloudinary(req.files.traImage[0].path, '4on4/users/documents');
       profile.traImage = {
-        path: `uploads/${relativePath}`,
+        path: cloudinaryResult.url,
+        publicId: cloudinaryResult.publicId,
       };
     }
   }
@@ -242,23 +262,18 @@ async function applyProfileFields(profile, req) {
 }
 
 function serialize(profile) {
-  const baseUrl = API_URL;
-  
+  // Cloudinary URLs are already full URLs, just extract them
   if (profile.profilePicture?.path) {
-    const path = profile.profilePicture.path.replace(/^\/?/, ''); // Remove leading slash if exists
-    profile.profilePicture = `${baseUrl}/${path}`;
+    profile.profilePicture = profile.profilePicture.path;
   }
   if (profile.idImage?.path) {
-    const path = profile.idImage.path.replace(/^\/?/, '');
-    profile.idImage = `${baseUrl}/${path}`;
+    profile.idImage = profile.idImage.path;
   }
   if (profile.passportImage?.path) {
-    const path = profile.passportImage.path.replace(/^\/?/, '');
-    profile.passportImage = `${baseUrl}/${path}`;
+    profile.passportImage = profile.passportImage.path;
   }
   if (profile.traImage?.path) {
-    const path = profile.traImage.path.replace(/^\/?/, '');
-    profile.traImage = `${baseUrl}/${path}`;
+    profile.traImage = profile.traImage.path;
   }
   return profile;
 }

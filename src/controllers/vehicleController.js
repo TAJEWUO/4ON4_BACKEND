@@ -2,8 +2,7 @@
 const Vehicle = require("../models/Vehicle");
 const { ok, error } = require("../utils/response");
 const { deleteFile } = require("../services/fileService");
-const { convertMultipleToWebP } = require("../utils/imageConverter");
-const { API_URL } = require("../config/env");
+const { uploadToCloudinary, deleteFromCloudinary, getPublicIdFromUrl } = require("../services/cloudinaryService");
 
 // Upload vehicle (FormData). Files: images (max 3), documents (pdfs)
 exports.uploadVehicle = async (req, res) => {
@@ -41,36 +40,41 @@ exports.uploadVehicle = async (req, res) => {
     const sunroofBool = sunroof === "true" || sunroof === true || sunroof === "1";
     const fourByFourBool = fourByFour === "true" || fourByFour === true || fourByFour === "1";
 
-    // Gather files
+    // Upload files to Cloudinary
     const images = [];
     const docs = [];
 
     if (req.files) {
       // images field (1-5 images)
       if (req.files.images) {
-        console.log("[UPLOAD VEHICLE] Processing", req.files.images.length, "images");
-        const imagePaths = [];
+        console.log("[UPLOAD VEHICLE] Uploading", req.files.images.length, "images to Cloudinary");
         for (const f of req.files.images.slice(0, 5)) {
-          console.log("[UPLOAD VEHICLE] Original image path:", f.path);
-          imagePaths.push(f.path);
+          try {
+            const cloudinaryResult = await uploadToCloudinary(f.path, 'vehicles');
+            images.push({ 
+              path: cloudinaryResult.url,
+              publicId: cloudinaryResult.publicId
+            });
+            console.log("[UPLOAD VEHICLE] Image uploaded:", cloudinaryResult.url);
+          } catch (uploadErr) {
+            console.error("[UPLOAD VEHICLE] Failed to upload image:", uploadErr);
+          }
         }
-        // Convert all images to WebP
-        const webpPaths = await convertMultipleToWebP(imagePaths);
-        console.log("[UPLOAD VEHICLE] WebP conversion complete. Paths:", webpPaths);
-        
-        webpPaths.forEach(webpPath => {
-          const relativePath = webpPath.replace(/\\/g, '/').split('uploads/')[1];
-          const fullPath = `uploads/${relativePath}`;
-          console.log("[UPLOAD VEHICLE] Adding image to vehicle:", fullPath);
-          images.push({ path: fullPath });
-        });
-        
-        console.log("[UPLOAD VEHICLE] Total images to save:", images.length);
+        console.log("[UPLOAD VEHICLE] Total images uploaded:", images.length);
       }
       // documents field
       if (req.files.documents) {
+        console.log("[UPLOAD VEHICLE] Uploading", req.files.documents.length, "documents to Cloudinary");
         for (const f of req.files.documents) {
-          docs.push({ path: `uploads/vehicles/${f.filename}` });
+          try {
+            const cloudinaryResult = await uploadToCloudinary(f.path, 'vehicles/documents');
+            docs.push({ 
+              path: cloudinaryResult.url,
+              publicId: cloudinaryResult.publicId
+            });
+          } catch (uploadErr) {
+            console.error("[UPLOAD VEHICLE] Failed to upload document:", uploadErr);
+          }
         }
       }
     }
@@ -117,35 +121,19 @@ exports.getVehiclesByUser = async (req, res) => {
   try {
     const { userId } = req.params;
     const vehicles = await Vehicle.find({ userId }).lean();
-    const baseUrl = API_URL;
     
     console.log("[GET VEHICLES] Found", vehicles.length, "vehicles for user", userId);
     
-    // Convert file refs to full URLs for frontend
+    // Cloudinary URLs are already full URLs, just extract them
     const sanitized = vehicles.map(v => {
-      // Handle images - extract path from object or use string directly
+      // Extract image URLs (already full Cloudinary URLs)
       v.images = (v.images || []).map(i => {
-        let imagePath = typeof i === 'object' ? i.path : i;
-        // Remove any leading slashes
-        imagePath = imagePath.replace(/^\/?/, '');
-        // If already a full URL, return as-is
-        if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-          return imagePath;
-        }
-        // Otherwise construct full URL
-        const fullUrl = `${baseUrl}/${imagePath}`;
-        console.log("[GET VEHICLES] Image:", imagePath, "->", fullUrl);
-        return fullUrl;
+        return typeof i === 'object' ? i.path : i;
       });
       
-      // Handle documents
+      // Extract document URLs
       v.documents = (v.documents || []).map(d => {
-        let docPath = typeof d === 'object' ? d.path : d;
-        docPath = docPath.replace(/^\/?/, '');
-        if (docPath.startsWith('http://') || docPath.startsWith('https://')) {
-          return docPath;
-        }
-        return `${baseUrl}/${docPath}`;
+        return typeof d === 'object' ? d.path : d;
       });
       
       return v;
@@ -154,7 +142,7 @@ exports.getVehiclesByUser = async (req, res) => {
     console.log("[GET VEHICLES] Sample vehicle:", sanitized[0] ? {
       plateNumber: sanitized[0].plateNumber,
       imagesCount: sanitized[0].images?.length,
-      images: sanitized[0].images
+      firstImage: sanitized[0].images?.[0]
     } : 'No vehicles');
     
     return ok(res, { vehicles: sanitized });
@@ -171,32 +159,14 @@ exports.getVehicleById = async (req, res) => {
     const v = await Vehicle.findById(vehicleId).lean();
     if (!v) return error(res, "Vehicle not found", 404);
     
-    const baseUrl = API_URL;
-    
-    // Handle images - extract path from object or use string directly
-    v.images = (v.images || []).map(i => {
-      let imagePath = typeof i === 'object' ? i.path : i;
-      imagePath = imagePath.replace(/^\/?/, '');
-      if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-        return imagePath;
-      }
-      return `${baseUrl}/${imagePath}`;
-    });
-    
-    // Handle documents
-    v.documents = (v.documents || []).map(d => {
-      let docPath = typeof d === 'object' ? d.path : d;
-      docPath = docPath.replace(/^\/?/, '');
-      if (docPath.startsWith('http://') || docPath.startsWith('https://')) {
-        return docPath;
-      }
-      return `${baseUrl}/${docPath}`;
-    });
+    // Extract Cloudinary URLs (already full URLs)
+    v.images = (v.images || []).map(i => typeof i === 'object' ? i.path : i);
+    v.documents = (v.documents || []).map(d => typeof d === 'object' ? d.path : d);
     
     console.log("[GET VEHICLE BY ID] Returning vehicle:", {
       plateNumber: v.plateNumber,
       imagesCount: v.images?.length,
-      images: v.images
+      firstImage: v.images?.[0]
     });
     
     return ok(res, { vehicle: v });
@@ -258,8 +228,11 @@ exports.updateVehicle = async (req, res) => {
       v.images = (v.images || []).filter(img => {
         const imgPath = img.path || img;
         if (removeArr.includes(imgPath)) {
-          console.log("[UPDATE VEHICLE] Deleting file:", imgPath);
-          deleteFile(imgPath);
+          console.log("[UPDATE VEHICLE] Deleting from Cloudinary:", imgPath);
+          const publicId = img.publicId || getPublicIdFromUrl(imgPath);
+          if (publicId) {
+            deleteFromCloudinary(publicId);
+          }
           return false;
         }
         return true;
@@ -271,8 +244,12 @@ exports.updateVehicle = async (req, res) => {
     if (removeDocumentPaths) {
       const remDocs = removeDocumentPaths.split(",").map(s => s.trim()).filter(Boolean);
       v.documents = (v.documents || []).filter(doc => {
-        if (remDocs.includes(doc.path || doc)) {
-          deleteFile(doc.path || doc);
+        const docPath = doc.path || doc;
+        if (remDocs.includes(docPath)) {
+          const publicId = doc.publicId || getPublicIdFromUrl(docPath);
+          if (publicId) {
+            deleteFromCloudinary(publicId);
+          }
           return false;
         }
         return true;
@@ -289,22 +266,21 @@ exports.updateVehicle = async (req, res) => {
         return error(res, "Maximum 5 images allowed. Please delete some images first.", 400);
       }
 
-      const imagePaths = [];
       const filesToProcess = req.files.images.slice(0, availableSlots);
-      console.log(`[UPDATE VEHICLE] Processing ${filesToProcess.length} new images (${availableSlots} slots available)`);
+      console.log(`[UPDATE VEHICLE] Uploading ${filesToProcess.length} new images to Cloudinary`);
       
       for (const f of filesToProcess) {
-        imagePaths.push(f.path);
+        try {
+          const cloudinaryResult = await uploadToCloudinary(f.path, 'vehicles');
+          v.images.push({ 
+            path: cloudinaryResult.url,
+            publicId: cloudinaryResult.publicId
+          });
+          console.log("[UPDATE VEHICLE] Image uploaded:", cloudinaryResult.url);
+        } catch (uploadErr) {
+          console.error("[UPDATE VEHICLE] Failed to upload image:", uploadErr);
+        }
       }
-      
-      // Convert all images to WebP
-      const webpPaths = await convertMultipleToWebP(imagePaths);
-      webpPaths.forEach(webpPath => {
-        const relativePath = webpPath.replace(/\\/g, '/').split('uploads/')[1];
-        const fullPath = `uploads/${relativePath}`;
-        console.log("[UPDATE VEHICLE] Adding new image:", fullPath);
-        v.images.push({ path: fullPath });
-      });
       
       console.log("[UPDATE VEHICLE] Total images after addition:", v.images.length);
     }
@@ -312,7 +288,15 @@ exports.updateVehicle = async (req, res) => {
     // Add new documents if present
     if (req.files && req.files.documents) {
       for (const f of req.files.documents) {
-        v.documents.push({ path: `uploads/vehicles/${f.filename}` });
+        try {
+          const cloudinaryResult = await uploadToCloudinary(f.path, 'vehicles/documents');
+          v.documents.push({ 
+            path: cloudinaryResult.url,
+            publicId: cloudinaryResult.publicId
+          });
+        } catch (uploadErr) {
+          console.error("[UPDATE VEHICLE] Failed to upload document:", uploadErr);
+        }
       }
     }
 
@@ -348,11 +332,10 @@ exports.deleteVehicleImage = async (req, res) => {
     v.images = (v.images || []).filter(img => {
       const imgPath = img.path || img;
       if (imgPath === imagePath) {
-        console.log("[DELETE IMAGE] Deleting file:", imgPath);
-        try {
-          deleteFile(imgPath);
-        } catch (e) {
-          console.error("[DELETE IMAGE] Failed to delete file:", e);
+        console.log("[DELETE IMAGE] Deleting from Cloudinary:", imgPath);
+        const publicId = img.publicId || getPublicIdFromUrl(imgPath);
+        if (publicId) {
+          deleteFromCloudinary(publicId);
         }
         return false;
       }
@@ -382,12 +365,19 @@ exports.deleteVehicle = async (req, res) => {
     if (!v) return error(res, "Vehicle not found", 404);
     if (!v.userId.equals(userId)) return error(res, "Unauthorized", 403);
 
-    // delete files
+    // Delete images from Cloudinary
     for (const img of v.images || []) {
-      try { deleteFile(img.path || img); } catch (e) {}
+      const publicId = img.publicId || getPublicIdFromUrl(img.path || img);
+      if (publicId) {
+        deleteFromCloudinary(publicId);
+      }
     }
+    // Delete documents from Cloudinary
     for (const d of v.documents || []) {
-      try { deleteFile(d.path || d); } catch (e) {}
+      const publicId = d.publicId || getPublicIdFromUrl(d.path || d);
+      if (publicId) {
+        deleteFromCloudinary(publicId);
+      }
     }
 
     await Vehicle.deleteOne({ _id: vehicleId });

@@ -2,7 +2,8 @@
 const mongoose = require("mongoose");
 
 const fileRefSchema = new mongoose.Schema({
-  path: { type: String }, // e.g. uploads/users/abc.jpg
+  path: { type: String }, // Cloudinary URL
+  publicId: { type: String }, // Cloudinary public ID for deletion
   uploadedAt: { type: Date, default: Date.now },
 });
 
