@@ -5,6 +5,9 @@ const vehicleController = require("../controllers/vehicleController");
 const auth = require("../middleware/auth");
 const { uploadVehicle } = require("../middleware/upload");
 
+// Public endpoint - get all vehicles for showcase
+router.get("/all", vehicleController.getAllVehicles);
+
 // upload vehicle: images (up to 5) under field 'images', documents under 'documents'
 router.post(
   "/upload",
@@ -16,7 +19,8 @@ router.post(
   vehicleController.uploadVehicle
 );
 
-router.get("/:userId", auth, vehicleController.getVehiclesByUser);
+// Get vehicles by user - use /user/:userId to avoid conflict with /all
+router.get("/user/:userId", auth, vehicleController.getVehiclesByUser);
 router.get("/single/:vehicleId", auth, vehicleController.getVehicleById);
 
 router.put(

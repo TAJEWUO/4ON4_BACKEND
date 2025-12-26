@@ -117,6 +117,33 @@ exports.uploadVehicle = async (req, res) => {
   }
 };
 
+exports.getAllVehicles = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const vehicles = await Vehicle.find({})
+      .limit(limit)
+      .sort({ createdAt: -1 })
+      .lean();
+    
+    console.log("[GET ALL VEHICLES] Found", vehicles.length, "vehicles");
+    
+    // Randomize order for variety
+    const shuffled = vehicles.sort(() => Math.random() - 0.5);
+    
+    // Extract URLs
+    const sanitized = shuffled.map(v => {
+      v.images = (v.images || []).map(i => typeof i === 'object' ? i.path : i);
+      v.documents = (v.documents || []).map(d => typeof d === 'object' ? d.path : d);
+      return v;
+    });
+    
+    return ok(res, { vehicles: sanitized });
+  } catch (err) {
+    console.error("getAllVehicles:", err);
+    return error(res, "Server error", 500);
+  }
+};
+
 exports.getVehiclesByUser = async (req, res) => {
   try {
     const { userId } = req.params;
